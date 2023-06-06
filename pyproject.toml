@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pmutils"
+version = "0.0.1"
+authors = [{name="zhiayang", email="zhiayang@nowhere.com" }]
+description = "Package management utilities"
+readme = "README.md"
+dependencies = ["requests"]
+requires-python = ">=3.10"
+
+[project.scripts]
+pm = "pmutils.pm:main"
+
+[project.urls]
+"Homepage" = "https://github.com/macos-pacman/pmutils"

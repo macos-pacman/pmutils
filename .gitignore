@@ -1,0 +1,9 @@
+*.o
+.DS_Store
+/build
+/dist
+/*.egg-info
+/.venv
+__pycache__
+/config.json
+/*.sublime-*
