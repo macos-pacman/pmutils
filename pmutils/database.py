@@ -1,0 +1,178 @@
+#!/usr/bin/env python
+# Copyright (c) 2023, zhiayang
+# SPDX-License-Identifier: Apache-2.0
+
+import io
+import os
+import pyzstd
+import tarfile
+import hashlib
+import subprocess
+
+from os import path
+from typing import *
+from pmutils import msg
+from pmutils.package import Package
+
+from pmutils.msg import YELLOW, GREEN, GREY, WHITE, BOLD, UNCOLOUR, ALL_OFF
+
+class Database:
+	def __init__(self, db_path: str, packages: list[Package]):
+		self._db_path = path.realpath(db_path)
+		self._packages: list[Package] = packages
+		self._names: dict[str, Package] = dict()
+		for pkg in self._packages:
+			self._names[pkg.name] = pkg
+
+		self._additions: list[str] = []     # filenames
+		self._add_names: dict[str, Package] = dict()
+		self._removals: list[Package] = []
+
+	def packages(self) -> list[Package]:
+		return self._packages
+
+	def get(self, name: str) -> Package:
+		if name not in self._names:
+			raise NameError(f"unknown package '{name}'")
+		return self._names[name]
+
+	def contains(self, name: str) -> bool:
+		return name in self._names
+
+	def remove(self, package: Package):
+		if package.name not in self._names:
+			msg.warn(f"Ignoring removal of '{package.name}' that was not in the database")
+			return
+
+		self._removals.append(package)
+
+	def add(self, file: str) -> bool:
+		if not path.exists(file):
+			msg.error(f"Ignoring addition of non-existent package file '{file}'")
+			return False
+
+		# remove an old package if we need to.
+		new_pkg = Package.parse(file, hashlib.file_digest(open(file, "rb"), "sha256").hexdigest())
+
+		def should_add(new_pkg: Package, old_pkg: Package):
+			if new_pkg.version > old_pkg.version:
+				return True
+
+			elif old_pkg.version == new_pkg.version:
+				# the old package better contain a hash!
+				assert old_pkg.sha256 is not None
+
+				if new_pkg.sha256 == old_pkg.sha256:
+					msg.p(f"{YELLOW}#{UNCOLOUR} ignoring {new_pkg} (identical copy in database)")
+					return False
+				else:
+					# stop doing this m8
+					msg.error(f"Package {new_pkg} has identical version but different hash in database")
+					return True
+
+			elif old_pkg.version > new_pkg.version:
+				msg.p(f"{YELLOW}#{UNCOLOUR} ignoring {new_pkg} ({GREY}{new_pkg.version}{UNCOLOUR} " + \
+					f"older than {GREEN}{old_pkg.version}{UNCOLOUR})")
+				return False
+
+		did_remove = False
+		old_pkg: Optional[Package] = None
+		if new_pkg.name in self._names:
+			old_pkg = self._names[new_pkg.name]
+			if not should_add(new_pkg, old_pkg):
+				return False
+
+			self._removals.append(old_pkg)
+			did_remove = True
+
+		# else, it was added before
+		elif new_pkg.name in self._add_names:
+			old_pkg = self._add_names[new_pkg.name]
+			if not should_add(new_pkg, old_pkg):
+				return False
+
+
+
+		self._add_names[new_pkg.name] = new_pkg
+		self._additions.append(file)
+
+		if old_pkg is not None and did_remove:
+			msg.p(f"{WHITE}*{ALL_OFF} {BOLD}{new_pkg.name}{ALL_OFF}" + \
+				f" ({GREY}{old_pkg.version}{ALL_OFF} -> {GREEN}{new_pkg.version}{ALL_OFF})")
+		else:
+			msg.p(msg.white("+ ") + f"{new_pkg.name}: {msg.green(str(new_pkg.version))}")
+
+		return True
+
+
+
+	# write the database to disk by applying pending remove and add operations (in that order)
+	# return a new database that has the updates.
+	def save(self) -> None:
+		if (a := len(self._removals)) > 0:
+			msg.log2(f"Removing {a} package{'' if a == 1 else 's'}")
+			subprocess.check_call(["repo-remove", "--quiet", self._db_path, *[x.name for x in self._removals]])
+
+		if (b := len(self._additions)) > 0:
+			msg.log2(f"Adding {b} package{'' if b == 1 else 's'}")
+			subprocess.check_call(["repo-add", "--quiet", "--sign", self._db_path, *self._additions])
+
+		if len(self._removals) + len(self._additions) > 0:
+			self.reload_from_file()
+			msg.log("Updated database on disk")
+
+
+	@staticmethod
+	def load(db_path: str) -> "Database":
+		if not path.exists(db_path):
+			if not path.exists(path.dirname(db_path)):
+				os.makedirs(path.dirname(db_path), exist_ok=True)
+
+			msg.log(f"Creating new database {db_path}")
+
+			# just in case there's actual errors
+			# note: we add '.tar.zst' explictily here.
+			out = subprocess.check_output(["repo-add", "--sign", "--quiet", f"{db_path}.tar.zst"],
+				stderr=subprocess.PIPE).splitlines()
+
+			for line in out:
+				if line != b"==> WARNING: No packages remain, creating empty database.":
+					print(line)
+
+			return Database(db_path, [])
+
+		ret = Database(db_path, []).reload_from_file()
+		msg.log(f"Loaded {len(ret._packages)} package{'' if len(ret._packages) == 1 else 's'} from {db_path}")
+
+		return ret
+
+
+	def reload_from_file(self) -> "Database":
+		db_tar: tarfile.TarFile
+		if path.splitext(self._db_path)[1] == ".zst":
+			with open(self._db_path, "rb") as f:
+				db_tar = tarfile.open(fileobj=io.BytesIO(pyzstd.decompress(f.read())))
+		else:
+			db_tar = tarfile.open(self._db_path)
+
+		def load_package(t: tarfile.TarInfo) -> Package:
+			# get the hash
+			desc = db_tar.extractfile(f"{t.name}/desc")
+			assert desc is not None
+
+			lines = desc.read().splitlines()
+			i = lines.index(b"%SHA256SUM%")
+			if i == -1:
+				msg.error_and_exit(f"{t.name} did not have a sha256 entry in the database!")
+
+			return Package.parse(t.name, lines[i + 1].decode())
+
+		self._packages = [ load_package(x) for x in db_tar.getmembers() if x.isdir() ]
+		for pkg in self._packages:
+			self._names[pkg.name] = pkg
+
+		self._add_names = dict()
+		self._additions = []
+		self._removals = []
+		return self
+

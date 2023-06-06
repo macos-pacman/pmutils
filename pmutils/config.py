@@ -2,51 +2,80 @@
 # Copyright (c) 2023, zhiayang
 # SPDX-License-Identifier: Apache-2.0
 
-import json
-import requests
+import tomllib
 
-from . import msg
 from typing import *
+from pmutils import msg
 from dataclasses import dataclass
+from pmutils.registry import Registry
 
-_FILENAME = "config.json"
+__global_config: "Config"
 
-@dataclass
-class User:
-	username: str
-	token: str
-	repo: str
-	oauth: Optional[str]
+def config() -> "Config":
+	global __global_config
+	return __global_config
+
+def _set_config(cfg: "Config") -> "Config":
+	global __global_config
+	__global_config = cfg
+	return __global_config
+
+
+@dataclass(eq=True, frozen=True)
+class Config:
+	registry: Registry
 
 	@staticmethod
-	def from_file() -> "User":
-		with open(_FILENAME, "r") as file:
-			f = json.load(file)
-			if "username" not in f or "token" not in f or "repo" not in f:
-				msg.error_and_exit(f"{_FILENAME} must be a JSON dictionary with 'username', 'token', and 'repo' keys")
+	def load(path: str) -> "Config":
+		with open(path, "rb") as file:
+			f = tomllib.load(file)
+			if "registry" not in f:
+				msg.error_and_exit(f"missing 'registry' section in config file")
 
-			elif ':' in f["username"]:
-				msg.error_and_exit(f"username cannot contain a colon")
+			reg_url = _get(f["registry"], "url", "registry")
+			reg_token = _get(f["registry"], "token", "registry")
+			reg_oauth = _get(f["registry"], "oauth", "registry", required=False, default=None)
 
-			user = User(f["username"], f["token"], f["repo"], f.get("oauth"))
-			msg.log(f"repo: {user.username}/{user.repo}")
-			return user
+			registry = Registry(reg_url, reg_token, reg_oauth)
+
+			if "repository" not in f:
+				msg.warn("No repositories configured")
+			else:
+				repos = f["repository"]
+				for name, repo in repos.items():
+					r_remote = _get(repo, "remote", f"repository.{name}")
+					r_database = _get(repo, "database", f"repository.{name}")
+					registry.add_repository(name, r_remote, r_database)
+
+			return _set_config(Config(registry))
 
 
-def get_token(user: User) -> str:
-	if user.oauth is not None:
-		msg.log("using existing OAuth token")
-		return user.oauth
 
-	resp = requests.get("https://ghcr.io/token", {
-		"scope": f"repository:{user.username}/{user.repo}:*",
-	}, auth=(user.username, user.token))
+	# def get_token(self) -> str:
+	# 	if self.oauth is not None:
+	# 		msg.log("using existing OAuth token")
+	# 		return self.oauth
 
-	if resp.status_code != 200:
-		msg.error_and_exit(f"failed to authenticate!\n{resp.text}")
+	# 	resp = requests.get("https://ghcr.io/token", {
+	# 		"scope": f"repository:{self.username}/{self.repo}:*",
+	# 	}, auth=(self.username, self.token))
 
-	json = resp.json()
-	if "token" not in json:
-		msg.error_and_exit(f"response did not return a token!\n{resp.text}")
+	# 	if resp.status_code != 200:
+	# 		msg.error_and_exit(f"failed to authenticate!\n{resp.text}")
 
-	return json["token"]
+	# 	json = resp.json()
+	# 	if "token" not in json:
+	# 		msg.error_and_exit(f"response did not return a token!\n{resp.text}")
+
+	# 	return json["token"]
+
+
+def _get(c: dict[str, Any], k: str, aa: str, *, required: bool = True, default: Any = None) -> Any:
+	if k not in c:
+		if required:
+			msg.error_and_exit(f"Missing required key '{k}' in section '{aa}'")
+		else:
+			return default
+	else:
+		return c[k]
+
