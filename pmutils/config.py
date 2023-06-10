@@ -26,7 +26,7 @@ class Config:
 	registry: Registry
 
 	@staticmethod
-	def load(path: str) -> "Config":
+	def load(path: str) -> None:
 		with open(path, "rb") as file:
 			f = tomllib.load(file)
 			if "registry" not in f:
@@ -34,9 +34,8 @@ class Config:
 
 			reg_url = _get(f["registry"], "url", "registry")
 			reg_token = _get(f["registry"], "token", "registry")
-			reg_oauth = _get(f["registry"], "oauth", "registry", required=False, default=None)
 
-			registry = Registry(reg_url, reg_token, reg_oauth)
+			registry = Registry(reg_url, reg_token)
 
 			if "repository" not in f:
 				msg.warn("No repositories configured")
@@ -45,29 +44,11 @@ class Config:
 				for name, repo in repos.items():
 					r_remote = _get(repo, "remote", f"repository.{name}")
 					r_database = _get(repo, "database", f"repository.{name}")
-					registry.add_repository(name, r_remote, r_database)
+					r_release_name = _get(repo, "release-name", f"repository.{name}")
+					registry.add_repository(name, r_remote, r_database, r_release_name)
 
-			return _set_config(Config(registry))
+			_set_config(Config(registry))
 
-
-
-	# def get_token(self) -> str:
-	# 	if self.oauth is not None:
-	# 		msg.log("using existing OAuth token")
-	# 		return self.oauth
-
-	# 	resp = requests.get("https://ghcr.io/token", {
-	# 		"scope": f"repository:{self.username}/{self.repo}:*",
-	# 	}, auth=(self.username, self.token))
-
-	# 	if resp.status_code != 200:
-	# 		msg.error_and_exit(f"failed to authenticate!\n{resp.text}")
-
-	# 	json = resp.json()
-	# 	if "token" not in json:
-	# 		msg.error_and_exit(f"response did not return a token!\n{resp.text}")
-
-	# 	return json["token"]
 
 
 def _get(c: dict[str, Any], k: str, aa: str, *, required: bool = True, default: Any = None) -> Any:

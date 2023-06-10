@@ -11,91 +11,56 @@ from pmutils.package import Package
 from pmutils.database import Database
 
 def main() -> int:
-	operations = [ "db" ]
+	operations = [ "add", "list" ]
 
 	if (len(sys.argv) < 2) or (sys.argv[1] not in operations):
 		print(textwrap.dedent("""\
 			usage: ./pm <operation> [flags]
 
 			Supported operations:
-			  db add [files...]             add packages to the database
+			  add <repo> [files...]             add packages to the repository
+			  list <repo>                       list packages in the repository
 			"""))
 		sys.exit(0)
 
+	# load config file first
 	Config.load("config.toml")
+	registry = config().registry
 
-	db = Database.load("tmp/core.db.tar.zst")
+	op = sys.argv[1]
+	args = sys.argv[2:]
 
-	if sys.argv[1]:
-		return command_db(db, sys.argv[2:])
-
-	else:
-		# unreachable
-		assert False
-
-
-
-def command_db(db: Database, args: list[str]) -> int:
-	ops = [ "add", "list", "upload" ]
-	if len(args) < 1 or args[0] not in ops:
-		print(textwrap.dedent("""\
-			usage: ./pm db <operation> [flags] [packages...]
-
-			Operations:
-			  list                  list all packages in the database (equivalent to `pacman -Q`)
-			  add [packages...]     add the given packages to the database
-
-			Supported flags:
-			  ?
-		"""))
-		return 0
-
-	if args[0] == "add":
+	if op == "add":
 		if len(args) < 2:
-			msg.warn(f"Expected at least one package for 'db add'")
-			return 0
+			msg.warn(f"Expected repository and at least one package for 'add'")
+			return 1
+
+		repo = registry.get_repository(args[0])
+		if repo is None:
+			msg.error_and_exit(f"Repository {args[0]} does not exist")
 
 		msg.log(f"Processing {len(args) - 1} new package{'' if len(args) == 2 else 's'}")
 		with msg.Indent():
 			for pkg in args[1:]:
-				db.add(pkg)
+				repo.database.add(pkg)
 
-		db.save()
+		repo.sync()
+		msg.log("Done")
 
-	elif args[0] == "list":
+	elif op == "list":
 		if len(args) != 1:
-			msg.warn(f"Ignoring arguments after 'db list'")
+			print(f"Usage: ./pm list <repo>")
+			return 0
 
-		msg.log("Listing packages:")
-		for pkg in db.packages():
-			print(f"  {pkg.name} {msg.GREEN}{pkg.version}{msg.ALL_OFF}")
+		msg.log("Packages:")
+		repo = registry.get_repository(args[0])
+		if repo is None:
+			msg.error_and_exit(f"Repository {args[0]} does not exist")
 
-	elif args[0] == "upload":
-
-		pass
+		for p in repo.database.packages():
+			print(f"  {p.name} {msg.GREEN}{p.version}{msg.ALL_OFF}")
 
 
 	return 0
 
 
-
-
-
-
-
-
-
-
-
-
-	# TODO: allow specifying config path
-	# cfg = Config.load("config.json")
-	# token = cfg.get_token()
-	# assert len(token) > 0
-
-
-
-
-
-	# msg.log("successfully authenticated")
-	# return 0

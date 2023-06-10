@@ -14,7 +14,7 @@ from typing import *
 from pmutils import msg
 from pmutils.package import Package
 
-from pmutils.msg import YELLOW, GREEN, GREY, WHITE, BOLD, UNCOLOUR, ALL_OFF
+from pmutils.msg import YELLOW, GREEN, PINK, GREY, WHITE, BOLD, UNCOLOUR, ALL_OFF
 
 class Database:
 	def __init__(self, db_path: str, packages: list[Package]):
@@ -26,7 +26,12 @@ class Database:
 
 		self._additions: list[str] = []     # filenames
 		self._add_names: dict[str, Package] = dict()
+		self._new_files: list[tuple[Package, str]] = []
+
 		self._removals: list[Package] = []
+
+	def path(self) -> str:
+		return self._db_path
 
 	def packages(self) -> list[Package]:
 		return self._packages
@@ -52,7 +57,10 @@ class Database:
 			return False
 
 		# remove an old package if we need to.
-		new_pkg = Package.parse(file, hashlib.file_digest(open(file, "rb"), "sha256").hexdigest())
+		new_pkg = Package.parse(file, size=os.stat(file).st_size,
+			sha256=hashlib.file_digest(open(file, "rb"), "sha256").hexdigest())
+
+		self._new_files.append((new_pkg, file))
 
 		def should_add(new_pkg: Package, old_pkg: Package):
 			if new_pkg.version > old_pkg.version:
@@ -91,16 +99,21 @@ class Database:
 			if not should_add(new_pkg, old_pkg):
 				return False
 
-
-
 		self._add_names[new_pkg.name] = new_pkg
 		self._additions.append(file)
 
 		if old_pkg is not None and did_remove:
 			msg.p(f"{WHITE}*{ALL_OFF} {BOLD}{new_pkg.name}{ALL_OFF}" + \
-				f" ({GREY}{old_pkg.version}{ALL_OFF} -> {GREEN}{new_pkg.version}{ALL_OFF})")
+				f" ({GREY}{old_pkg.version}{ALL_OFF} -> {GREEN}{new_pkg.version}{ALL_OFF})", end='')
 		else:
-			msg.p(msg.white("+ ") + f"{new_pkg.name}: {msg.green(str(new_pkg.version))}")
+			msg.p(msg.white("+ ") + f"{new_pkg.name}: {msg.green(str(new_pkg.version))}", end='')
+
+		# check if we need to generate a signature
+		sig_file = f"{file}.sig"
+		if not path.exists(sig_file):
+			print(f", {PINK}signing{ALL_OFF}", end='', flush=True)
+			subprocess.check_call(["gpg", "--use-agent", "--output", sig_file, "--detach-sig", file])
+			print(f", {GREEN}done{ALL_OFF}")
 
 		return True
 
@@ -108,18 +121,23 @@ class Database:
 
 	# write the database to disk by applying pending remove and add operations (in that order)
 	# return a new database that has the updates.
-	def save(self) -> None:
+	def save(self) -> list[tuple[Package, str]]:
 		if (a := len(self._removals)) > 0:
 			msg.log2(f"Removing {a} package{'' if a == 1 else 's'}")
 			subprocess.check_call(["repo-remove", "--quiet", self._db_path, *[x.name for x in self._removals]])
 
 		if (b := len(self._additions)) > 0:
 			msg.log2(f"Adding {b} package{'' if b == 1 else 's'}")
-			subprocess.check_call(["repo-add", "--quiet", "--sign", self._db_path, *self._additions])
+			subprocess.check_call(["repo-add", "--quiet", "--prevent-downgrade", "--sign",
+				self._db_path, *self._additions])
 
+		# need to save it before `reload_from_file()`, since that resets it
+		new_files = self._new_files
 		if len(self._removals) + len(self._additions) > 0:
 			self.reload_from_file()
 			msg.log("Updated database on disk")
+
+		return new_files
 
 
 	@staticmethod
@@ -161,17 +179,19 @@ class Database:
 			assert desc is not None
 
 			lines = desc.read().splitlines()
-			i = lines.index(b"%SHA256SUM%")
-			if i == -1:
-				msg.error_and_exit(f"{t.name} did not have a sha256 entry in the database!")
 
-			return Package.parse(t.name, lines[i + 1].decode())
+			sha256 = lines[lines.index(rb"%SHA256SUM%") + 1].decode()
+			size = int(lines[lines.index(rb"%CSIZE%") + 1].decode())
+			arch = lines[lines.index(rb"%ARCH%") + 1].decode()
+
+			return Package.parse(t.name, size, sha256, arch=arch)
 
 		self._packages = [ load_package(x) for x in db_tar.getmembers() if x.isdir() ]
 		for pkg in self._packages:
 			self._names[pkg.name] = pkg
 
 		self._add_names = dict()
+		self._new_files = []
 		self._additions = []
 		self._removals = []
 		return self

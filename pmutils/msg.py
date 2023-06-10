@@ -11,6 +11,7 @@ GREEN   = "\x1b[92;1m"
 BLUE    = "\x1b[94;1m"
 YELLOW  = "\x1b[93;1m"
 RED     = "\x1b[91;1m"
+PINK    = "\x1b[95;1m"
 GREY    = "\x1b[90;1m"
 WHITE   = "\x1b[97;1m"
 BOLD    = "\x1b[1m"
@@ -26,6 +27,9 @@ def blue(s: str):
 def yellow(s: str):
 	return f"{YELLOW}{s}{ALL_OFF}"
 
+def pink(s: str):
+	return f"{PINK}{s}{ALL_OFF}"
+
 def red(s: str):
 	return f"{RED}{s}{ALL_OFF}"
 
@@ -37,25 +41,29 @@ def bold(s: str):
 
 
 
-def log(msg: str):
-	print(f"{green('==>')} {bold(msg)}")
+def log(msg: str, end: str = '\n'):
+	print(f"{green('==>')} {bold(msg)}", flush=True, end=end)
 
-def log2(msg: str):
-	print(f"{blue('  ->')} {bold(msg)}")
+def log2(msg: str, end: str = '\n'):
+	print(f"{blue('  ->')} {bold(msg)}", flush=True, end=end)
+
+def log3(msg: str, end: str = '\n'):
+	print(f"{pink('    +')} {bold(msg)}", flush=True, end=end)
+
 
 def warn(msg: str):
-	print(f"{yellow('==> WARNING:')} {bold(msg)}", file=sys.stderr)
+	print(f"{yellow('==> WARNING:')} {bold(msg)}", flush=True, file=sys.stderr)
 
 def error(msg: str):
-	print(f"{red('==> ERROR:')} {bold(msg)}", file=sys.stderr)
+	print(f"{red('==> ERROR:')} {bold(msg)}", flush=True, file=sys.stderr)
 
-def error_and_exit(msg: str):
+def error_and_exit(msg: str) -> NoReturn:
 	error(msg)
 	sys.exit(1)
 
-def p(msg: str):
+def p(msg: str, end: str = '\n'):
 	global _indentation
-	print(4 * _indentation * ' ' + msg)
+	print(2 * _indentation * ' ' + msg, end=end, flush=True)
 
 def indent():
 	global _indentation
