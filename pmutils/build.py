@@ -21,6 +21,7 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 	with tempfile.TemporaryDirectory() as tmp:
 		env = os.environ
 		env["PKGDEST"] = tmp
+		args += [f"PKGDEST={tmp}"]
 		sp.check_call(args, env=env)
 
 		packages: list[str] = []
@@ -45,4 +46,3 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 			msg.log("Moving packages to /pm/pkgs...")
 			for pkg in packages:
 				os.rename(pkg, f"/pm/pkgs/{os.path.basename(pkg)}")
-
