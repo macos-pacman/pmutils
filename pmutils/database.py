@@ -51,7 +51,7 @@ class Database:
 
 		self._removals.append(package)
 
-	def add(self, file: str) -> bool:
+	def add(self, file: str, verbose: bool = True) -> bool:
 		if not path.exists(file):
 			msg.error(f"Ignoring addition of non-existent package file '{file}'")
 			return False
@@ -71,7 +71,8 @@ class Database:
 				assert old_pkg.sha256 is not None
 
 				if new_pkg.sha256 == old_pkg.sha256:
-					msg.p(f"{YELLOW}#{UNCOLOUR} ignoring {new_pkg} (identical copy in database)")
+					if verbose:
+						msg.p(f"{YELLOW}#{UNCOLOUR} ignoring {new_pkg} (identical copy in database)")
 					return False
 				else:
 					# stop doing this m8
@@ -79,8 +80,9 @@ class Database:
 					return True
 
 			elif old_pkg.version > new_pkg.version:
-				msg.p(f"{YELLOW}#{UNCOLOUR} ignoring {new_pkg} ({GREY}{new_pkg.version}{UNCOLOUR} " + \
-					f"older than {GREEN}{old_pkg.version}{UNCOLOUR})")
+				if verbose:
+					msg.p(f"{YELLOW}#{UNCOLOUR} ignoring {new_pkg} ({GREY}{new_pkg.version}{UNCOLOUR} " + \
+						f"older than {GREEN}{old_pkg.version}{UNCOLOUR})")
 				return False
 
 		did_remove = False
@@ -111,9 +113,12 @@ class Database:
 		# check if we need to generate a signature
 		sig_file = f"{file}.sig"
 		if not path.exists(sig_file):
-			print(f", {PINK}signing{ALL_OFF}", end='', flush=True)
+			if verbose:
+				print(f", {PINK}signing{ALL_OFF}", end='', flush=True)
 			subprocess.check_call(["gpg", "--use-agent", "--output", sig_file, "--detach-sig", file])
-			print(f", {GREEN}done{ALL_OFF}")
+
+			if verbose:
+				print(f", {GREEN}done{ALL_OFF}")
 
 		return True
 

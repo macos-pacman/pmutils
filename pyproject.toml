@@ -8,7 +8,7 @@ version = "0.0.1"
 authors = [{name="zhiayang", email="zhiayang@nowhere.com" }]
 description = "Package management utilities"
 readme = "README.md"
-dependencies = ["requests"]
+dependencies = ["requests", "pyzstd", "click"]
 requires-python = ">=3.10"
 
 [project.scripts]

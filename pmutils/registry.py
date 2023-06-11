@@ -136,20 +136,21 @@ class Repository:
 			msg.log2("Signing database")
 			subprocess.check_call(["gpg", "--use-agent", "--output", sig_file, "--detach-sig", db_file])
 
+		msg.log2(f"Uploading {self.name}.db: ", end='')
 		if db_asset_id is not None:
-			msg.log2(f"Deleting existing {self.name}.db")
+			print(f"{msg.PINK}delete existing{msg.ALL_OFF}, ", end='', flush=True)
 			self._delete_asset(token, db_asset_id, f"{self.name}.db", db_file)
 
+		self._upload_asset(token, release_id, f"{self.name}.db", db_file)
+		print(f"{msg.GREEN}done{msg.ALL_OFF}")
+
+		msg.log2(f"Uploading {self.name}.db.sig: ", end='')
 		if sig_asset_id is not None:
-			msg.log2(f"Deleting existing {self.name}.db.sig")
+			print(f"{msg.PINK}delete existing{msg.ALL_OFF}, ", end='', flush=True)
 			self._delete_asset(token, sig_asset_id, f"{self.name}.db.sig", sig_file)
 
-		msg.log2(f"Uploading {self.name}.db")
-		self._upload_asset(token, release_id, f"{self.name}.db", db_file)
-
-		msg.log2(f"Uploading {self.name}.db.sig")
 		self._upload_asset(token, release_id, f"{self.name}.db.sig", sig_file)
-
+		print(f"{msg.GREEN}done{msg.ALL_OFF}")
 
 
 
