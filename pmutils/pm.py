@@ -86,13 +86,20 @@ def db_list(ctx: Any, repo: str):
 @click.option("--keep/--delete", help="Keep the built package after adding it (requires `--add`)", default=False)
 @click.option("--add", "database", metavar="DATABASE", help="Add built package to the database", required=False)
 @click.option("-s", "--skip-upload", is_flag=True, help="Do not upload to remote repositories")
-def cmd_build(ctx: Any, verify_pgp: bool, check: bool, keep: bool, skip_upload: bool, database: Optional[str]):
+@click.option("-i", "--install", is_flag=True, help="Install the package after building")
+def cmd_build(ctx: Any, verify_pgp: bool,
+			  check: bool,
+			  keep: bool,
+			  skip_upload: bool,
+			  install: bool,
+			  database: Optional[str]):
 	"""Build a package"""
 
 	Config.load(ctx.meta["config_file"])
 	registry = config().registry
 
-	build.makepkg(registry, verify_pgp=verify_pgp, check=check, keep=keep, database=database, skip_upload=skip_upload)
+	build.makepkg(registry, verify_pgp=verify_pgp, check=check, keep=keep, database=database,
+		skip_upload=skip_upload, install=install)
 	msg.log("Done")
 
 

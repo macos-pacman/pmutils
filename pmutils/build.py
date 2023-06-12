@@ -11,7 +11,8 @@ from pmutils import msg
 from pmutils.config import Config
 from pmutils.registry import Registry
 
-def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, database: Optional[str], skip_upload: bool):
+def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, database: Optional[str],
+			skip_upload: bool, install: bool):
 	args = ["makepkg", "-f"]
 	if not check:
 		args += ["--nocheck"]
@@ -41,8 +42,12 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 				if not skip_upload:
 					repo.sync()
 
+		if install:
+			msg.log("Installing package(s)")
+			sp.check_call(["sudo", "pacman", "-U", *[ f"{tmp}/{x}" for x in packages ]])
+
 		# if we're keeping, move them somewhere that's not the temp dir
 		if keep:
-			msg.log("Moving packages to /pm/pkgs...")
+			msg.log("Moving package(s) to /pm/pkgs")
 			for pkg in packages:
 				os.rename(pkg, f"/pm/pkgs/{os.path.basename(pkg)}")
