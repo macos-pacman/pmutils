@@ -133,8 +133,10 @@ class Database:
 	# return a new database that has the updates.
 	def save(self) -> list[tuple[Package, str]]:
 		# if the lock file exists, spin until it no longer exists
-		msg.log("Pacman database is locked, waiting...")
-		while os.path.exists(f"{self._db_path}.lck"):
+		while True:
+			if not os.path.exists(f"{self._db_path}.lck"):
+				break
+			msg.log("Pacman database is locked, waiting...")
 			time.sleep(0.5)
 
 		if (a := len(self._removals)) > 0:
