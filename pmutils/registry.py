@@ -134,7 +134,10 @@ class Repository:
 		sig_file = f"{db_file}.sig"
 		if not os.path.exists(sig_file):
 			msg.log2("Signing database")
-			subprocess.check_call(["gpg", "--use-agent", "--output", sig_file, "--detach-sig", db_file])
+			try:
+				subprocess.check_call(["gpg", "--use-agent", "--output", sig_file, "--detach-sig", db_file])
+			except:
+				msg.error_and_exit("Failed to sign database!")
 
 		msg.log2(f"Uploading {self.name}.db: ", end='')
 		if db_asset_id is not None:

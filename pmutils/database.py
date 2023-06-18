@@ -4,6 +4,7 @@
 
 import io
 import os
+import time
 import pyzstd
 import tarfile
 import hashlib
@@ -115,7 +116,11 @@ class Database:
 		if not path.exists(sig_file):
 			if verbose:
 				print(f", {PINK}signing{ALL_OFF}", end='', flush=True)
-			subprocess.check_call(["gpg", "--use-agent", "--output", sig_file, "--detach-sig", file])
+
+			try:
+				subprocess.check_call(["gpg", "--use-agent", "--output", sig_file, "--detach-sig", file])
+			except:
+				msg.error_and_exit("Failed to sign package!")
 
 			if verbose:
 				print(f", {GREEN}done{ALL_OFF}")
@@ -127,14 +132,25 @@ class Database:
 	# write the database to disk by applying pending remove and add operations (in that order)
 	# return a new database that has the updates.
 	def save(self) -> list[tuple[Package, str]]:
+		# if the lock file exists, spin until it no longer exists
+		msg.log("Pacman database is locked, waiting...")
+		while os.path.exists(f"{self._db_path}.lck"):
+			time.sleep(0.5)
+
 		if (a := len(self._removals)) > 0:
 			msg.log2(f"Removing {a} package{'' if a == 1 else 's'}")
-			subprocess.check_call(["repo-remove", "--quiet", self._db_path, *[x.name for x in self._removals]])
+			try:
+				subprocess.check_call(["repo-remove", "--quiet", self._db_path, *[x.name for x in self._removals]])
+			except:
+				msg.error_and_exit("Failed to remove package!")
 
 		if (b := len(self._additions)) > 0:
 			msg.log2(f"Adding {b} package{'' if b == 1 else 's'}")
-			subprocess.check_call(["repo-add", "--quiet", "--prevent-downgrade", "--sign",
-				self._db_path, *self._additions])
+			try:
+				subprocess.check_call(["repo-add", "--quiet", "--prevent-downgrade", "--sign",
+					self._db_path, *self._additions])
+			except:
+				msg.error_and_exit("Failed to add package!")
 
 		# need to save it before `reload_from_file()`, since that resets it
 		new_files = self._new_files
@@ -155,8 +171,11 @@ class Database:
 
 			# just in case there's actual errors
 			# note: we add '.tar.zst' explictily here.
-			out = subprocess.check_output(["repo-add", "--sign", "--quiet", f"{db_path}.tar.zst"],
-				stderr=subprocess.PIPE).splitlines()
+			try:
+				out = subprocess.check_output(["repo-add", "--sign", "--quiet", f"{db_path}.tar.zst"],
+					stderr=subprocess.PIPE).splitlines()
+			except:
+				msg.error_and_exit("Failed to create database!")
 
 			for line in out:
 				if line != b"==> WARNING: No packages remain, creating empty database.":
