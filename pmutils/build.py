@@ -23,7 +23,10 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 		env = os.environ
 		env["PKGDEST"] = tmp
 		args += [f"PKGDEST={tmp}"]
-		sp.check_call(args, env=env)
+		try:
+			sp.check_call(args, env=env)
+		except:
+			msg.error_and_exit("Failed to build package!")
 
 		packages: list[str] = []
 		for pkg in os.listdir(tmp):
@@ -44,7 +47,10 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 
 		if install:
 			msg.log("Installing package(s)")
-			sp.check_call(["sudo", "pacman", "-U", *[ f"{tmp}/{x}" for x in packages ]])
+			try:
+				sp.check_call(["sudo", "pacman", "-U", *[ f"{tmp}/{x}" for x in packages ]])
+			except:
+				msg.error_and_exit("Failed to install package!")
 
 		# if we're keeping, move them somewhere that's not the temp dir
 		if keep:
