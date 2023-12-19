@@ -199,20 +199,7 @@ class Database:
 		else:
 			db_tar = tarfile.open(self._db_path)
 
-		def load_package(t: tarfile.TarInfo) -> Package:
-			# get the hash
-			desc = db_tar.extractfile(f"{t.name}/desc")
-			assert desc is not None
-
-			lines = desc.read().splitlines()
-
-			sha256 = lines[lines.index(rb"%SHA256SUM%") + 1].decode()
-			size = int(lines[lines.index(rb"%CSIZE%") + 1].decode())
-			arch = lines[lines.index(rb"%ARCH%") + 1].decode()
-
-			return Package.parse(t.name, size, sha256, arch=arch)
-
-		self._packages = [ load_package(x) for x in db_tar.getmembers() if x.isdir() ]
+		self._packages = [ Package.from_tar_file(db_tar, x) for x in db_tar.getmembers() if x.isdir() ]
 		for pkg in self._packages:
 			self._names[pkg.name] = pkg
 

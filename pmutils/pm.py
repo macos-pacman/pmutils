@@ -6,7 +6,7 @@ import os
 import click
 
 from typing import *
-from pmutils import msg, build
+from pmutils import msg, build, check
 from pmutils.config import Config, config
 
 DEFAULT_CONFIG = "config.toml"
@@ -78,6 +78,28 @@ def db_list(ctx: Any, repo: str):
 		print(f"  {p.name} {msg.GREEN}{p.version}{msg.ALL_OFF}")
 
 
+@cli.command(name="check", help="Check for out-of-date packages in the database")
+@click.pass_context
+@click.argument("repo", required=True)
+def cmd_check(ctx: Any, repo: str):
+	"""Check packages in DATABASE for any out-of-date packages"""
+
+	Config.load(ctx.meta["config_file"])
+	registry = config().registry
+	r = registry.get_repository(repo)
+	if r is None:
+		msg.error_and_exit(f"Repository {repo} does not exist")
+
+	url = config().upstream_url
+	if url is None:
+		msg.error_and_exit(f"Cannot check for package updates without any `upstream` configured")
+
+	check.check_packages(url, r, config().checker)
+
+
+
+
+
 
 @cli.command(name="build", help="Build a local PKGBUILD")
 @click.pass_context
@@ -101,7 +123,6 @@ def cmd_build(ctx: Any, verify_pgp: bool,
 	build.makepkg(registry, verify_pgp=verify_pgp, check=check, keep=keep, database=database,
 		skip_upload=skip_upload, install=install)
 	msg.log("Done")
-
 
 
 

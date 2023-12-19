@@ -8,7 +8,6 @@ import subprocess as sp
 
 from typing import *
 from pmutils import msg
-from pmutils.config import Config
 from pmutils.registry import Registry
 
 def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, database: Optional[str],
@@ -56,4 +55,4 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 		if keep:
 			msg.log("Moving package(s) to /pm/pkgs")
 			for pkg in packages:
-				os.rename(pkg, f"/pm/pkgs/{os.path.basename(pkg)}")
+				os.rename(f"{tmp}/{pkg}", f"/pm/pkgs/{os.path.basename(pkg)}")

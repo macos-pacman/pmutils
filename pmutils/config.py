@@ -20,10 +20,35 @@ def _set_config(cfg: "Config") -> "Config":
 	__global_config = cfg
 	return __global_config
 
+@dataclass(eq=True, frozen=True)
+class CheckerConfig:
+	check_out_of_date: bool
+	ignore_pkgrel: bool
+	ignore_haskell_pkgrel: bool
+
+	ignore_packages: set[str]
+	ignore_epochs: set[str]
+
+	@staticmethod
+	def load(obj: Optional[dict[str, Any]]) -> "CheckerConfig":
+		if obj is None:
+			obj = {}
+
+		return CheckerConfig(
+			check_out_of_date=obj.get("check-out-of-date", False),
+			ignore_pkgrel=obj.get("ignore-pkgrel", False),
+			ignore_haskell_pkgrel=obj.get("ignore-haskell-pkgrel", True),
+			ignore_packages=set(obj.get("ignore-packages", [])),
+			ignore_epochs=set(obj.get("ignore-package-epochs", []))
+		)
+
+
 
 @dataclass(eq=True, frozen=True)
 class Config:
 	registry: Registry
+	upstream_url: Optional[str]
+	checker: CheckerConfig
 
 	@staticmethod
 	def load(path: str) -> None:
@@ -47,7 +72,8 @@ class Config:
 					r_release_name = _get(repo, "release-name", f"repository.{name}")
 					registry.add_repository(name, r_remote, r_database, r_release_name)
 
-			_set_config(Config(registry))
+			upstream_url = _get(f["upstream"], "url", "upstream") if "upstream" in f else None
+			_set_config(Config(registry, upstream_url, CheckerConfig.load(f.get("checker"))))
 
 
 

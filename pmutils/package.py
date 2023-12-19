@@ -2,6 +2,7 @@
 # Copyright (c) 2023, zhiayang
 # SPDX-License-Identifier: Apache-2.0
 
+import tarfile
 import subprocess
 import os.path as path
 
@@ -36,6 +37,16 @@ class Version:
 	def __ge__(self, other: "Version") -> bool:
 		return self == other or self > other
 
+	@staticmethod
+	def parse(s: str) -> "Version":
+		epoch: int = 0
+
+		if ':' in s:
+			_epoch, s = s.split(':')
+			epoch = int(_epoch)
+
+		pkgver, _pkgrel = s.rsplit('-', maxsplit=1)
+		return Version(epoch, pkgver, int(_pkgrel))
 
 
 # HARDCODED LIST OF THINGS
@@ -105,3 +116,23 @@ class Package:
 
 		return Package(name, Version(epoch, pkgver, int(pkgrel)), arch, sha256, size)
 
+	@staticmethod
+	def from_tar_file(tar: tarfile.TarFile, info: tarfile.TarInfo):
+		if info.isdir():
+			desc = tar.extractfile(f"{info.name}/desc")
+		else:
+			desc = tar.extractfile(info)
+
+		assert desc is not None
+		lines = desc.read().splitlines()
+
+		def _key(s: str) -> str:
+			return lines[lines.index(f"%{s}%".encode()) + 1].decode()
+
+		return Package(
+			name    = _key("NAME"),
+			version = Version.parse(_key("VERSION")),
+			arch    = _key("ARCH"),
+			sha256  = _key("SHA256SUM"),
+			size    = int(_key("CSIZE"))
+		)
