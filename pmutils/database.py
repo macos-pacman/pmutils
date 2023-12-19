@@ -124,6 +124,8 @@ class Database:
 
 			if verbose:
 				print(f", {GREEN}done{ALL_OFF}")
+			else:
+				print("")
 
 		return True
 
