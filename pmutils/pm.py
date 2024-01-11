@@ -36,10 +36,16 @@ def cli(ctx: Any, config: str) -> int:
 @cli.command(name="add")
 @click.pass_context
 @click.option("-v", "--verbose", is_flag=True, help="Print verbose output")
+@click.option("-k", "--keep", is_flag=True, help="Keep packages after uploading (do not delete)")
 @click.option("-s", "--skip-upload", is_flag=True, help="Do not upload to remote repositories")
 @click.argument("repo", required=True)
 @click.argument("package", nargs=-1, type=click.Path(exists=True, dir_okay=False))
-def db_add(ctx: Any, repo: str, package: list[click.Path], verbose: bool = False, skip_upload: bool = False):
+def db_add(ctx: Any,
+		   repo: str,
+		   package: list[click.Path],
+		   verbose: bool = False,
+		   skip_upload: bool = False,
+		   keep: bool = False):
 	"""Add PACKAGE files to the DATABASE"""
 
 	Config.load(ctx.meta["config_file"])
@@ -56,6 +62,11 @@ def db_add(ctx: Any, repo: str, package: list[click.Path], verbose: bool = False
 
 	if not skip_upload:
 		r.sync()
+
+	if not keep:
+		for pkg in [p for p in map(str, package) if os.path.exists(p)]:
+			msg.log(f"Deleted {pkg}")
+			os.remove(pkg)
 
 	msg.log("Done")
 

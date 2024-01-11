@@ -15,36 +15,27 @@ ORG = "macos-pacman"
 package_urls: list[tuple[str, str]] = []
 
 # first get a list of packages
-if not os.path.exists("PACKAGES.tmp"):
-	page = 1
-	while True:
-		pkgs = req.get(f"https://api.github.com/orgs/{ORG}/packages", params={
-			"package_type": "container",
-			"page": page,
-			"per_page": 100,
-		}, headers={
-			"Accept": "application/vnd.github+json",
-			"X-GitHub-Api-Version": "2022-11-28",
-			"Authorization": f"Bearer {token}"
-		}).json()
+page = 1
+while True:
+	pkgs = req.get(f"https://api.github.com/orgs/{ORG}/packages", params={
+		"package_type": "container",
+		"visibility": "private",
+		"page": page,
+		"per_page": 100,
+	}, headers={
+		"Accept": "application/vnd.github+json",
+		"X-GitHub-Api-Version": "2022-11-28",
+		"Authorization": f"Bearer {token}"
+	}).json()
 
-		if len(pkgs) == 0:
-			break
+	if len(pkgs) == 0:
+		break
 
-		print(f"Page {page}: {len(pkgs)} package{'' if len(pkgs) == 1 else 's'}")
-		for pkg in pkgs:
-			package_urls.append((pkg["html_url"], pkg["name"]))
+	print(f"Page {page}: {len(pkgs)} package{'' if len(pkgs) == 1 else 's'}")
+	for pkg in pkgs:
+		package_urls.append((pkg["html_url"], pkg["name"]))
 
-		page += 1
-
-	with open("PACKAGES.tmp", "w") as ff:
-		for pkg_name in package_urls:
-			ff.write(f"{pkg_name}\n")
-
-else:
-	with open("PACKAGES.tmp", "w") as ff:
-		package_urls = [("____", x) for x in ff.readlines()]
-
+	page += 1
 
 
 # pyright: reportUnknownMemberType=false
@@ -56,7 +47,7 @@ driver.implicitly_wait(0.3)
 driver.get("https://github.com/login")
 
 driver.find_element(by=By.ID, value="login_field").clear()
-driver.find_element(by=By.ID, value="login_field").send_keys("zhiayang")
+driver.find_element(by=By.ID, value="login_field").send_keys("macos-pacman-bot")
 driver.find_element(by=By.ID, value="password").clear()
 driver.find_element(by=By.ID, value="password").send_keys(open("pw", "r").read().strip())
 
