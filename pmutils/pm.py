@@ -67,12 +67,14 @@ def db_add(ctx: Any,
 		msg.log(f"Deleting package files")
 		for pkg in [p for p in map(str, package) if os.path.exists(p)]:
 			os.remove(pkg)
-			msg.log2(f"{pkg}", end='')
+			if verbose:
+				msg.log2(f"{pkg}", end='')
+
 			if os.path.exists(f"{pkg}.sig"):
 				os.remove(f"{pkg}.sig")
-				print(f", .sig")
 
-			print(f"")
+				if verbose:
+					print(f", {msg.bold('.sig')}")
 
 	msg.log("Done")
 
