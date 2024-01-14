@@ -6,17 +6,16 @@ import sys
 from typing import *
 
 _indentation: int = 0
-
-GREEN   = "\x1b[92;1m"
-BLUE    = "\x1b[94;1m"
-YELLOW  = "\x1b[93;1m"
-RED     = "\x1b[91;1m"
-PINK    = "\x1b[95;1m"
-GREY    = "\x1b[90;1m"
-WHITE   = "\x1b[97;1m"
-BOLD    = "\x1b[1m"
-UNCOLOUR= "\x1b[0m\x1b[1m"
-ALL_OFF = "\x1b[0m"
+GREEN   = "\x1b[92;1m"      if sys.stdout.isatty() else ""
+BLUE    = "\x1b[94;1m"      if sys.stdout.isatty() else ""
+YELLOW  = "\x1b[93;1m"      if sys.stdout.isatty() else ""
+RED     = "\x1b[91;1m"      if sys.stdout.isatty() else ""
+PINK    = "\x1b[95;1m"      if sys.stdout.isatty() else ""
+GREY    = "\x1b[90;1m"      if sys.stdout.isatty() else ""
+WHITE   = "\x1b[97;1m"      if sys.stdout.isatty() else ""
+BOLD    = "\x1b[1m"         if sys.stdout.isatty() else ""
+UNCOLOUR= "\x1b[0m\x1b[1m"  if sys.stdout.isatty() else ""
+ALL_OFF = "\x1b[0m"         if sys.stdout.isatty() else ""
 
 def green(s: str):
 	return f"{GREEN}{s}{ALL_OFF}"

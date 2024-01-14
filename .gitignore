@@ -9,3 +9,4 @@ __pycache__
 /config.toml
 /*.sublime-*
 /tmp
+/outdated.txt

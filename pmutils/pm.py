@@ -6,7 +6,7 @@ import os
 import click
 
 from typing import *
-from pmutils import msg, build, check
+from pmutils import msg, build, check, diff
 from pmutils.config import Config, config
 
 DEFAULT_CONFIG = "config.toml"
@@ -39,7 +39,7 @@ def cli(ctx: Any, config: str) -> int:
 @click.option("-k", "--keep", is_flag=True, help="Keep packages after uploading (do not delete)")
 @click.option("-s", "--skip-upload", is_flag=True, help="Do not upload to remote repositories")
 @click.argument("repo", required=True)
-@click.argument("package", nargs=-1, type=click.Path(exists=True, dir_okay=False))
+@click.argument("package", required=True, nargs=-1, type=click.Path(exists=True, dir_okay=False))
 def db_add(ctx: Any,
 		   repo: str,
 		   package: list[click.Path],
@@ -116,8 +116,21 @@ def cmd_check(ctx: Any, repo: str):
 	check.check_packages(url, r, config().checker)
 
 
+@cli.command(name="diff", help="Generate diffs between local PKGBUILD and upstream (Arch Linux)")
+@click.pass_context
+@click.argument("pkgbuild", required=True, nargs=-1, type=click.Path(exists=True))
+def cmd_diff(ctx: Any, pkgbuild: list[click.Path]):
+	for file in map(str, pkgbuild):
+		if not os.path.isdir(file):
+			msg.log2(f"Skipping non-folder '{file}'")
+			continue
+		elif not os.path.exists(f"{file}/PKGBUILD"):
+			msg.log2(f"Skipping folder '{file}' with no PKGBUILD")
+			continue
 
+		diff.diff_package(file)
 
+	msg.log("Done")
 
 
 @cli.command(name="build", help="Build a local PKGBUILD")
