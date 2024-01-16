@@ -110,7 +110,7 @@ def _add_array(line: str, first: bool, adder: Callable[[tuple[str, str, int]], N
 
 	ss = io.StringIO(line)
 	shlexer = shlex.shlex(ss, posix=True, punctuation_chars=True)
-	shlexer.wordchars += "{$:/,}"
+	shlexer.wordchars += "{$:/,+}"
 	shlexer.commenters = ""
 
 	# get tokens till the shlexer returns None
