@@ -43,8 +43,14 @@ def _patch_file(d: diff.FileDiff, keep_diffs: bool, upstream_srcinfo: util.SrcIn
 		f.write(d.upstream)
 
 	msg.log2(f"{d.name}", end='')
-	if len(d.diff) == 0:
+	if d.new:
+		print(f": {msg.green('new')}")
+		os.rename(new_name, d.name)
+		return True
+
+	elif len(d.diff) == 0:
 		print(f": {msg.pink('no changes')}")
+		os.remove(new_name)
 		return True
 
 	# check whether the thing can apply first

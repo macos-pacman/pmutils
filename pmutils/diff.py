@@ -28,6 +28,7 @@ class FileDiff:
 	name: str
 	diff: str
 	upstream: str
+	new: bool = False
 
 @dataclass(frozen=True)
 class PackageDiff:
@@ -379,14 +380,13 @@ def _generate_diff(pkg_url: str, upstream_sha: str, local_path: str) -> Optional
 		msg.error(f"Could not fetch upstream file content: {resp.text}")
 		return None
 
-	files = ["-", os.path.normpath(local_path)]
+	filename = os.path.basename(local_path)
 	if not os.path.exists(local_path):
-		files.reverse()
+		return FileDiff(name=filename, diff="", upstream=resp.text, new=True)
 
 	# ignore the exit code
-	filename = os.path.basename(local_path)
-	output = subprocess.run(["diff", "-Nd", "--unified=1", f"--label={filename}", f"--label={filename}", *files],
-		text=True, input=resp.text, check=False, capture_output=True)
+	output = subprocess.run(["diff", "-Nd", "--unified=1", f"--label={filename}", f"--label={filename}",
+		"-", os.path.normpath(local_path)], text=True, input=resp.text, check=False, capture_output=True)
 
 	if output.returncode == 2:
 		msg.warn2(f"Diff produced an error: {output.stderr}")
