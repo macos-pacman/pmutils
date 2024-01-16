@@ -37,14 +37,14 @@ class Registry:
 	def url(self) -> str:
 		return self._url
 
-	def add_repository(self, name: str, remote: str, db_file: str, release_name: str):
+	def add_repository(self, name: str, remote: str, db_file: str, release_name: str, root_dir: Optional[str] = None):
 		if name in self._repos:
 			msg.error_and_exit(f"duplicate repository '{name}'")
 
 		if not db_file.endswith(".db"):
 			msg.error_and_exit(f"db path should end in `.db`, and not have .tar.*")
 
-		self._repos[name] = Repository(name, remote, release_name, Database.load(db_file), self)
+		self._repos[name] = Repository(name, remote, release_name, Database.load(db_file), self, root_dir=root_dir)
 
 	def get_repository(self, name: str) -> Optional["Repository"]:
 		return self._repos.get(name)
@@ -79,6 +79,7 @@ class Repository:
 	release_name: str
 	database: Database
 	registry: Registry
+	root_dir: Optional[str]
 
 	def sync(self):
 		updates = self.database.save()
@@ -104,6 +105,7 @@ class Repository:
 		}, data=open(file, "rb"))
 
 	def _delete_asset(self, token: str, asset_id: int, name: str, file: str):
+		_ = name; _ = file;
 		req.delete(f"https://api.github.com/repos/{self.remote}/releases/assets/{asset_id}", headers={
 			"X-GitHub-Api-Version": "2022-11-28",
 			"Authorization": f"Bearer {token}",

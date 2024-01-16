@@ -49,6 +49,8 @@ def log2(msg: str, end: str = '\n'):
 def log3(msg: str, end: str = '\n'):
 	print(f"{pink('    +')} {bold(msg)}", flush=True, end=end)
 
+def warn2(msg: str):
+	print(f"{yellow('  -> WARNING:')} {bold(msg)}", flush=True, file=sys.stderr)
 
 def warn(msg: str):
 	print(f"{yellow('==> WARNING:')} {bold(msg)}", flush=True, file=sys.stderr)

@@ -15,7 +15,7 @@ from typing import *
 from pmutils import msg
 from pmutils.package import Package
 
-from pmutils.msg import YELLOW, GREEN, PINK, GREY, WHITE, BOLD, UNCOLOUR, ALL_OFF
+from pmutils.msg import GREEN, PINK, GREY, WHITE, BOLD, UNCOLOUR, ALL_OFF
 
 class Database:
 	def __init__(self, db_path: str, packages: list[Package]):
@@ -52,7 +52,7 @@ class Database:
 
 		self._removals.append(package)
 
-	def add(self, file: str, verbose: bool = True) -> bool:
+	def add(self, file: str, verbose: bool = True, allow_downgrade: bool = False) -> bool:
 		if not path.exists(file):
 			msg.error(f"Ignoring addition of non-existent package file '{file}'")
 			return False
@@ -73,18 +73,20 @@ class Database:
 
 				if new_pkg.sha256 == old_pkg.sha256:
 					if verbose:
-						msg.p(f"{YELLOW}#{UNCOLOUR} ignoring {new_pkg} (identical copy in database)")
+						msg.warn2(f"Ignoring {new_pkg} (identical copy in database)")
 					return False
 				else:
 					# stop doing this m8
-					msg.error(f"Package {new_pkg} has identical version but different hash in database")
+					msg.warn2(f"Package {new_pkg} has identical version but different hash in database")
 					return True
 
 			elif old_pkg.version > new_pkg.version:
 				if verbose:
-					msg.p(f"{YELLOW}#{UNCOLOUR} ignoring {new_pkg} ({GREY}{new_pkg.version}{UNCOLOUR} " + \
+					msg.warn2(f"{'Ignoring ' if not allow_downgrade else 'Downgrading '}{new_pkg}" + \
+						f" ({GREY}{new_pkg.version}{UNCOLOUR} " + \
 						f"older than {GREEN}{old_pkg.version}{UNCOLOUR})")
-				return False
+
+				return allow_downgrade
 
 		did_remove = False
 		old_pkg: Optional[Package] = None

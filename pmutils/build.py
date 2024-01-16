@@ -11,7 +11,7 @@ from pmutils import msg
 from pmutils.registry import Registry
 
 def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, database: Optional[str],
-			skip_upload: bool, install: bool):
+			upload: bool, install: bool, confirm: bool = True, allow_downgrade: bool = False):
 	args = ["makepkg", "-f"]
 	if not check:
 		args += ["--nocheck"]
@@ -39,15 +39,16 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 			else:
 				with msg.Indent():
 					for pkg in packages:
-						repo.database.add(f"{tmp}/{pkg}", verbose=True)
+						repo.database.add(f"{tmp}/{pkg}", verbose=True, allow_downgrade=allow_downgrade)
 
-				if not skip_upload:
+				if upload:
 					repo.sync()
 
 		if install:
 			msg.log("Installing package(s)")
 			try:
-				sp.check_call(["sudo", "pacman", "-U", *[ f"{tmp}/{x}" for x in packages ]])
+				sp.check_call(["sudo", "pacman", *["" if confirm else "--noconfirm"],
+					"-U", *[ f"{tmp}/{x}" for x in packages ]])
 			except:
 				msg.error_and_exit("Failed to install package!")
 

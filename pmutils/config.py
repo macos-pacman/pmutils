@@ -70,7 +70,8 @@ class Config:
 					r_remote = _get(repo, "remote", f"repository.{name}")
 					r_database = _get(repo, "database", f"repository.{name}")
 					r_release_name = _get(repo, "release-name", f"repository.{name}")
-					registry.add_repository(name, r_remote, r_database, r_release_name)
+					r_root_dir = _get(repo, "root-dir", f"repository.{name}", required=False)
+					registry.add_repository(name, r_remote, r_database, r_release_name, r_root_dir)
 
 			upstream_url = _get(f["upstream"], "url", "upstream") if "upstream" in f else None
 			_set_config(Config(registry, upstream_url, CheckerConfig.load(f.get("checker"))))

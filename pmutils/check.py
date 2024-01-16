@@ -37,7 +37,7 @@ def _print_progress(idx: int, total: int):
 	print(f"\x1b[{txt_len}D", end='', flush=True)
 
 
-def check_packages(base_url: str, repo: Repository, check_config: CheckerConfig):
+def check_packages(base_url: str, repo: Repository, check_config: CheckerConfig, verbose: bool) -> list[str]:
 	pkg_names = set(x.name for x in repo.database.packages())
 
 	upstream_versions: dict[str, Version] = {}
@@ -154,12 +154,16 @@ def check_packages(base_url: str, repo: Repository, check_config: CheckerConfig)
 	updated_packages = list(sorted(filter(filt, upstream_versions.keys())))
 
 	if (num_upd := len(updated_packages)) > 0:
-		msg.log(f"{num_upd} package{' was' if num_upd == 1 else 's were'} updated upstream:")
+		msg.log(f"{num_upd} package{' was' if num_upd == 1 else 's were'} updated upstream{':' if verbose else ''}")
 		for u in updated_packages:
-			msg.log3(f"{u}{msg.ALL_OFF}: {msg.GREY}{repo.database.get(u).version}{msg.ALL_OFF} " +
-					 f"-> {msg.GREEN}{upstream_versions[u]}{msg.ALL_OFF}")
+			if verbose:
+				msg.log3(f"{u}{msg.ALL_OFF}: {msg.GREY}{repo.database.get(u).version}{msg.ALL_OFF} " +
+						 f"-> {msg.GREEN}{upstream_versions[u]}{msg.ALL_OFF}")
 
 	if (num_ood := len(upstream_flagged_ood)) > 0:
-		msg.log(f"{num_ood} package{' was' if num_ood == 1 else 's were'} flagged out-of-date:")
+		msg.log(f"{num_ood} package{' was' if num_ood == 1 else 's were'} flagged out-of-date{':' if verbose else ''}")
 		for name, date in upstream_flagged_ood.items():
-			msg.log3(f"{name}{msg.ALL_OFF}: {msg.GREY}since{msg.ALL_OFF} {msg.YELLOW}{date.strftime('%Y-%m-%d')}{msg.ALL_OFF}")
+			if verbose:
+				msg.log3(f"{name}{msg.ALL_OFF}: {msg.GREY}since{msg.ALL_OFF} {msg.YELLOW}{date.strftime('%Y-%m-%d')}{msg.ALL_OFF}")
+
+	return updated_packages

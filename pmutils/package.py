@@ -15,7 +15,7 @@ from dataclasses import dataclass
 class Version:
 	epoch: int
 	pkgver: str
-	pkgrel: int
+	pkgrel: str
 
 	def __str__(self) -> str:
 		estr = f"{self.epoch}:" if self.epoch > 0 else ""
@@ -46,7 +46,7 @@ class Version:
 			epoch = int(_epoch)
 
 		pkgver, _pkgrel = s.rsplit('-', maxsplit=1)
-		return Version(epoch, pkgver, int(_pkgrel))
+		return Version(epoch, pkgver, _pkgrel)
 
 
 # HARDCODED LIST OF THINGS
@@ -114,7 +114,7 @@ class Package:
 		if arch not in [ "any", "arm64", "x86_64" ]:
 			msg.error_and_exit(f"Package '{name}' has invalid arch '{arch}'")
 
-		return Package(name, Version(epoch, pkgver, int(pkgrel)), arch, sha256, size)
+		return Package(name, Version(epoch, pkgver, pkgrel), arch, sha256, size)
 
 	@staticmethod
 	def from_tar_file(tar: tarfile.TarFile, info: tarfile.TarInfo):
