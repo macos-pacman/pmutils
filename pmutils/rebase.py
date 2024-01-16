@@ -51,11 +51,15 @@ def rebase_package(pkg_dir: str, force: bool, *,
 	pkgname = os.path.basename(pkg_dir)
 	msg.log(f"Updating {pkgname}")
 
-	# make the diffs (note: diff_package already checks for a dirty working dir)
-	if (gen := remote.diff_package_lazy(pkg_path=pkg_dir, force=force, fetch_latest=True)) is None:
-		return False
-
 	with contextlib.chdir(pkg_dir) as _:
+		if (pmdiff := remote.PmDiffFile.load()) is None:
+			msg.warn2(f"Changes file missing! Run `pm diff` first")
+			return False
+
+		# make the diffs (note: diff_package already checks for a dirty working dir)
+		if (gen := remote.diff_package_lazy(pkg_path=pkg_dir, force=force, fetch_latest=True)) is None:
+			return False
+
 		local_srcinfo = util.get_srcinfo("./PKGBUILD")
 		for d, _ in gen:
 			if d is None:
@@ -64,7 +68,7 @@ def rebase_package(pkg_dir: str, force: bool, *,
 			# if there's no diff:
 			diff_name = f"{d.name}.pmdiff"
 			if not os.path.exists(diff_name):
-				if not d.new:
+				if (not d.new) and (d.name not in pmdiff.clean_files):
 					msg.warn2(f"Diff file `{diff_name}` is missing!")
 					continue
 				else:
@@ -90,22 +94,23 @@ def rebase_package(pkg_dir: str, force: bool, *,
 
 		install_pkg = False
 	else:
-		msg.log2(f"Version: {old_ver} -> {new_ver}")
+		msg.log2(f"Version: {msg.GREY}{old_ver}{msg.ALL_OFF} {msg.BOLD}->{msg.ALL_OFF} {msg.GREEN}{new_ver}{msg.ALL_OFF}")
 
 	with contextlib.chdir(pkg_dir) as _:
+		if commit and (not have_fails):
+			try:
+				# see if there are changes at all
+				if subprocess.check_output(["git", "status", "--porcelain", "."], text=True).strip() != "":
+					# note: we are still in the pkg directory.
+					msg.log2(f"Commiting changes")
+					subprocess.check_call(["git", "add", "-A", "."])
+					subprocess.check_call(["git", "commit", "-qam", f"{pkgname}: update to {new_ver}"])
+				else:
+					msg.log2(f"No changes to commit")
+			except:
+				msg.warn2(f"Commit failed!")
+
 		if (build_pkg or install_pkg) and (not have_fails):
-			if commit:
-				try:
-					# see if there are changes at all
-					if subprocess.check_output(["git", "status", "--porcelain", "."], text=True).strip() != "":
-						# note: we are still in the pkg directory.
-						msg.log2(f"Commiting changes")
-						subprocess.check_call(["git", "add", "-A", "."])
-						subprocess.check_call(["git", "commit", "-qam", f"{pkgname}: update to {new_ver}"])
-					else:
-						msg.log2(f"No changes to commit")
-				except:
-					msg.warn2(f"Commit failed!")
 
 			assert registry is not None
 			assert repository is not None

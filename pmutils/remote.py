@@ -19,6 +19,7 @@ UPSTREAM_URL_BASE = f"https://gitlab.archlinux.org"
 PACKAGE_NAMESPACE = f"archlinux/packaging/packages"
 
 PMDIFF_JSON_FILE = ".changes.json"
+DEFAULT_IGNORE_FILES = [".SRCINFO"]
 
 @dataclass(frozen=True)
 class FileDiff:
@@ -61,7 +62,7 @@ def _diff_file(repo_url: str, upstream_sha: str, local_path: str) -> Optional[Fi
 		return FileDiff(name=filename, diff="", upstream=resp.text, new=True)
 
 	# ignore the exit code
-	output = subprocess.run(["diff", "-Ndu", f"--label={filename}", f"--label={filename}",
+	output = subprocess.run(["diff", "-Nd", "--unified=0", f"--label={filename}", f"--label={filename}",
 		"-", os.path.normpath(local_path)], text=True, input=resp.text, check=False, capture_output=True)
 
 	if output.returncode == 2:
@@ -79,36 +80,42 @@ class PmDiffFile:
 	upstream_commit: str
 	diff_files: list[str]
 	clean_files: list[str]
+	ignore_files: list[str]
 
 	@staticmethod
-	def load(path: str) -> Optional["PmDiffFile"]:
+	def load(path: str = PMDIFF_JSON_FILE) -> Optional["PmDiffFile"]:
 		if not os.path.exists(path):
 			return None
 
 		with open(path, "r") as f:
 			j = json.loads(f.read())
-			if ("upstream_commit" not in j) or not isinstance(j["upstream_commit"], str):
-				msg.warn2(f"Required key `upstream_commit` not present (or not a string) in `{PMDIFF_JSON_FILE}`, ignoring")
+			if ("upstream_commit" in j) and not isinstance(j["upstream_commit"], str):
+				msg.warn2(f"Required key `upstream_commit` not a string in `{PMDIFF_JSON_FILE}`, ignoring")
 				return None
-			elif ("diff_files" not in j) or not isinstance(j["diff_files"], list):
-				msg.warn2(f"Required key `diff_files` not present (or not a list) in `{PMDIFF_JSON_FILE}`, ignoring")
+			elif ("diff_files" in j) and not isinstance(j["diff_files"], list):
+				msg.warn2(f"Required key `diff_files` not a list in `{PMDIFF_JSON_FILE}`, ignoring")
 				return None
-			elif ("clean_files" not in j) or not isinstance(j["clean_files"], list):
-				msg.warn2(f"Required key `clean_files` not present (or not a list) in `{PMDIFF_JSON_FILE}`, ignoring")
+			elif ("clean_files" in j) and not isinstance(j["clean_files"], list):
+				msg.warn2(f"Required key `clean_files` not a list in `{PMDIFF_JSON_FILE}`, ignoring")
+				return None
+			elif ("ignore_files" in j) and not isinstance(j["ignore_files"], list):
+				msg.warn2(f"Required key `ignore_files` not a list in `{PMDIFF_JSON_FILE}`, ignoring")
 				return None
 
 			return PmDiffFile(
 				upstream_commit=j["upstream_commit"],
-				diff_files=list(map(str, j["diff_files"])),
-				clean_files=list(map(str, j["clean_files"]))
+				diff_files=list(map(str, j.get("diff_files", []))),
+				clean_files=list(map(str, j.get("clean_files", []))),
+				ignore_files=list(map(str, j.get("ignore_files", []))) + DEFAULT_IGNORE_FILES
 			)
 
-	def save(self, path: str):
+	def save(self, path: str = PMDIFF_JSON_FILE):
 		with open(path, "w") as f:
 			f.write(json.dumps({
 				"upstream_commit": self.upstream_commit,
 				"diff_files": self.diff_files,
 				"clean_files": self.clean_files,
+				"ignore_files": self.ignore_files,
 			}, indent=2))
 
 
@@ -141,13 +148,14 @@ def _generator(repo_url: str, ignored_srcs: list[str], upstream_sha: Optional[st
 
 		yield (diff, None)
 
-	yield (None, PmDiffFile(upstream_sha, diff_files=diff_files, clean_files=clean_files))
+	yield (None, PmDiffFile(upstream_sha, diff_files=diff_files, clean_files=clean_files, ignore_files=ignored_srcs))
 
 
 
 def diff_package_lazy(pkg_path: str,
 	force: bool,
-	fetch_latest: bool = False) -> Optional[Iterator[tuple[Optional[FileDiff], Optional[PmDiffFile]]]]:
+	fetch_latest: bool = False
+) -> Optional[Iterator[tuple[Optional[FileDiff], Optional[PmDiffFile]]]]:
 
 	pkgbuild_path = f"{pkg_path}/PKGBUILD"
 	if not os.path.exists(pkgbuild_path):
@@ -165,22 +173,13 @@ def diff_package_lazy(pkg_path: str,
 		PKG_URL = urlparse.quote(f"{PACKAGE_NAMESPACE}/{pkgbase}", safe='')
 		REPO_URL = f"{UPSTREAM_URL_BASE}/api/v4/projects/{PKG_URL}/repository"
 
-		ignored_srcs: list[str] = [".SRCINFO", "*.desktop"]
-		if os.path.exists(f"./.pmdiffignore"):
-			with open(f"./.pmdiffignore", "r") as f:
-				ignored_srcs.extend(map(lambda s: s.strip(), f.readlines()))
-
-				# weirdge
-				if "PKGBUILD" in ignored_srcs:
-					msg.log2(f"{msg.yellow('Ignoring upstream PKGBUILD')}")
-
 		if (pmdiff := PmDiffFile.load(f"./{PMDIFF_JSON_FILE}")) is None:
 			msg.log2(f"No {PMDIFF_JSON_FILE}: diffing against latest upstream")
-			return _generator(REPO_URL, ignored_srcs, upstream_sha=None)
+			return _generator(REPO_URL, DEFAULT_IGNORE_FILES, upstream_sha=None)
 
 		else:
-			commit = pmdiff.upstream_commit if not fetch_latest else None
-			return _generator(REPO_URL, ignored_srcs, upstream_sha=commit)
+			commit = None if fetch_latest else pmdiff.upstream_commit
+			return _generator(REPO_URL, pmdiff.ignore_files, upstream_sha=commit)
 
 
 

@@ -111,7 +111,7 @@ class Database:
 			msg.p(f"{WHITE}*{ALL_OFF} {BOLD}{new_pkg.name}{ALL_OFF}" + \
 				f" ({GREY}{old_pkg.version}{ALL_OFF} -> {GREEN}{new_pkg.version}{ALL_OFF})", end='')
 		else:
-			msg.p(msg.white("+ ") + f"{new_pkg.name}: {msg.green(str(new_pkg.version))}", end='')
+			msg.p(msg.white("+ ") + f"{BOLD}{new_pkg.name}{ALL_OFF}: {msg.green(str(new_pkg.version))}", end='')
 
 		# check if we need to generate a signature
 		sig_file = f"{file}.sig"
