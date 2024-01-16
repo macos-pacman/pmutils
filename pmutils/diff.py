@@ -48,15 +48,14 @@ def _patch_offensive_lines_in_pkgbuild(lines: list[str]) -> list[str]:
 			ret.append("pkgver=69.420")
 		elif line.startswith("url="):
 			ret.append("url=AAAAAAAA")
-		elif (m := re.match(r"(_\w*ver)=", line)):
-			ret.append(f"{m.groups()[0]}=AAAAAAAA")
-		elif (m := re.match(r"(_\w*(?:rev|commit))=", line)):
+		elif (m := re.match(r"(_\w*(?:rev|commit|ver|tag))=", line)):
 			ret.append(f"{m.groups()[0]}=AAAAAAAA")
 		elif line.startswith("_build_date="):
 			ret.append(f"_build_date='January 1, 1970'")
 		elif line.startswith("source="):
 			while i < len(lines):
-				s = re.sub(r"#commit=([A-Fa-f0-9]+)", "#commit=AAAAAAAA", lines[i])
+				s = re.sub(r"#tag=([A-Fa-f0-9]+)", "#tag=AAAAAAAA", lines[i])
+				s = re.sub(r"#commit=([A-Fa-f0-9]+)", "#commit=AAAAAAAA", s)
 				s = re.sub(r"#revision=([A-Fa-f0-9]+)", "#revision=AAAAAAAA", s)
 				i += 1
 

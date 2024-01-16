@@ -106,54 +106,62 @@ def rebase_package(pkg_dir: str, force: bool, keep_diffs: bool, *,
 		return False
 
 	# first get the srcinfo of the current PKGBUILD to get which checksums we need
+	# this is horrible; python has no goto, so...
 	with contextlib.chdir(pkg_dir) as _:
-		pkgbuild = next(pd.files)
-		assert pkgbuild.name == "PKGBUILD"
+		for _ in range(1):
+			pkgbuild = next(pd.files)
+			assert pkgbuild.name == "PKGBUILD"
 
-		hash_replacements: dict[str, str] = {}
-		local_srcinfo = util.get_srcinfo("./PKGBUILD")
-		upstream_srcinfo = util.get_srcinfo_from_string(pkgbuild.upstream)
+			hash_replacements: dict[str, str] = {}
+			local_srcinfo = util.get_srcinfo("./PKGBUILD")
+			upstream_srcinfo = util.get_srcinfo_from_string(pkgbuild.upstream)
 
-		for d in pd.files:
-			if not _patch_file(d, keep_diffs, upstream_srcinfo, hash_replacements):
+			for d in pd.files:
+				if not _patch_file(d, keep_diffs, upstream_srcinfo, hash_replacements):
+					have_fails = True
+
+			# ok now that we have all the hash replacements, patch the PKGBUILD, then replace the hashes
+			if not _patch_file(pkgbuild, keep_diffs, upstream_srcinfo, hash_replacements):
 				have_fails = True
 
-		# ok now that we have all the hash replacements, patch the PKGBUILD, then replace the hashes
-		_patch_file(pkgbuild, keep_diffs, upstream_srcinfo, hash_replacements)
-		with open(f"PKGBUILD", "r") as orig, open(f"PKGBUILD.tmp", "w") as new:
-			contents = orig.read()
-			for s, r in hash_replacements.items():
-				contents = contents.replace(s, r)
-			new.write(contents)
+			# if we have fails, don't do any of the rest of the stuff
+			if have_fails:
+				break
 
-		os.rename("PKGBUILD.tmp", "PKGBUILD")
+			with open(f"PKGBUILD", "r") as orig, open(f"PKGBUILD.tmp", "w") as new:
+				contents = orig.read()
+				for s, r in hash_replacements.items():
+					contents = contents.replace(s, r)
+				new.write(contents)
 
-		lv = local_srcinfo.version()
-		uv = upstream_srcinfo.version()
-		if uv < lv:
-			msg.warn2(f"Upstream version '{uv}' is older than local '{lv}'{' (not installing)' if install_pkg else ''}")
-			install_pkg = False
+			os.rename("PKGBUILD.tmp", "PKGBUILD")
 
-		if (build_pkg or install_pkg) and (not have_fails):
-			if commit:
-				try:
-					# see if there are changes at all
-					if subprocess.check_output(["git", "status", "--porcelain", "."], text=True).strip() != "":
-						# note: we are still in the pkg directory.
-						msg.log2(f"Commiting changes:")
-						subprocess.check_call(["git", "add", "-A", "."])
-						subprocess.check_call(["git", "commit", "-qam", f"{pkgname}: update to {uv}"])
-					else:
-						msg.log2(f"No changes to commit")
-				except:
-					msg.warn2(f"Commit failed!")
+			lv = local_srcinfo.version()
+			uv = upstream_srcinfo.version()
+			if uv < lv:
+				msg.warn2(f"Upstream version '{uv}' is older than local '{lv}'{' (not installing)' if install_pkg else ''}")
+				install_pkg = False
 
-			assert registry is not None
-			assert repository is not None
+			if (build_pkg or install_pkg) and (not have_fails):
+				if commit:
+					try:
+						# see if there are changes at all
+						if subprocess.check_output(["git", "status", "--porcelain", "."], text=True).strip() != "":
+							# note: we are still in the pkg directory.
+							msg.log2(f"Commiting changes")
+							subprocess.check_call(["git", "add", "-A", "."])
+							subprocess.check_call(["git", "commit", "-qam", f"{pkgname}: update to {uv}"])
+						else:
+							msg.log2(f"No changes to commit")
+					except:
+						msg.warn2(f"Commit failed!")
 
-			build.makepkg(registry=registry, verify_pgp=False, check=check_pkg, keep=(not upload),
-				database=repository.name, upload=upload, install=install_pkg,
-				confirm=False, allow_downgrade=allow_downgrade)
+				assert registry is not None
+				assert repository is not None
+
+				build.makepkg(registry=registry, verify_pgp=False, check=check_pkg, keep=(not upload),
+					database=repository.name, upload=upload, install=install_pkg,
+					confirm=False, allow_downgrade=allow_downgrade)
 
 
 	if have_fails:
