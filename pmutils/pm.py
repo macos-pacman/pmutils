@@ -198,7 +198,13 @@ def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdate
 		if (build or install) and (repo is None):
 			msg.error_and_exit(f"Building or installing requires `--repo` option")
 
-		packages = list(map(str, package))
+		# if the folder exists, assume it's a folder; otherwise, assume it's a package if we were given the repo.
+		def _folder_or_pkgname(p: str) -> str:
+			if (r is not None) and ('/' not in p) and ('.' not in p) and (r.root_dir is not None) and r.database.contains(p):
+				return f"{r.root_dir}/{p}"
+			return p
+
+		packages = list(map(_folder_or_pkgname, map(str, package)))
 
 
 	fails: list[str] = []

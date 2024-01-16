@@ -61,7 +61,7 @@ def _patch_file(d: diff.FileDiff, keep_diffs: bool, upstream_srcinfo: util.SrcIn
 		return False
 
 	# ok, it can apply. now apply it for real.
-	subprocess.run(["patch", "-Ns", "-Vnone", new_name], input=d.diff, text=True, check=True)
+	subprocess.run(["patch", "-ENs", "-Vnone", new_name], input=d.diff, text=True, check=True)
 	os.rename(new_name, d.name)
 	print(f": {msg.green('ok')}")
 

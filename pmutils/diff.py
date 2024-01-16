@@ -14,6 +14,7 @@ import braceexpand
 from typing import *
 from pmutils import msg, util
 from dataclasses import dataclass
+from collections import OrderedDict
 
 import requests as req
 import urllib.parse as urlparse
@@ -32,28 +33,6 @@ class FileDiff:
 class PackageDiff:
 	files: Iterator[FileDiff]
 
-
-def _generate_diff(pkg_url: str, upstream_sha: str, local_path: str) -> Optional[FileDiff]:
-	resp = req.get(f"{UPSTREAM_URL_BASE}/api/v4/projects/{pkg_url}/repository/blobs/{upstream_sha}/raw")
-	if resp.status_code != 200:
-		msg.error(f"Could not fetch upstream PKGBUILD content: {resp.text}")
-		return None
-
-	if not os.path.exists(local_path):
-		return None
-
-	# ignore the exit code
-	filename = os.path.basename(local_path)
-	output = subprocess.run(["diff", "-d", "--unified=1", f"--label={filename}", f"--label={filename}",
-		"-", os.path.normpath(local_path)], text=True, input=resp.text, check=False, capture_output=True)
-
-	if output.returncode == 2:
-		msg.warn2(f"Diff produced an error: {output.stderr}")
-		return None
-	elif output.returncode == 0:
-		return FileDiff(name=filename, diff="", upstream=resp.text)
-
-	return FileDiff(name=filename, diff=output.stdout, upstream=resp.text)
 
 
 def _patch_offensive_lines_in_pkgbuild(lines: list[str]) -> list[str]:
@@ -108,51 +87,78 @@ def _patch_offensive_lines_in_pkgbuild(lines: list[str]) -> list[str]:
 		i += 1
 	return ret
 
-def _add_array(line: str, first: bool, arr: list[tuple[str, int]]) -> bool:
+@dataclass(frozen=True)
+class SourceEntry:
+	value: str
+	comment: str
+	expanded_count: int
+
+@dataclass(frozen=True)
+class ChecksumEntry:
+	value: str
+	comment: str
+
+@dataclass(frozen=True)
+class SourceChecksumList:
+	# second string is for the comment at the end of the line
+	sources: list[SourceEntry]
+	checksums: OrderedDict[str, list[ChecksumEntry]]
+
+
+def _add_array(line: str, first: bool, adder: Callable[[tuple[str, str, int]], None]) -> bool:
 	if first:
 		line = line.split('=', maxsplit=1)[1]
+
 	ss = io.StringIO(line)
 	shlexer = shlex.shlex(ss, posix=True, punctuation_chars=True)
 	shlexer.wordchars += "{$:/,}"
+	shlexer.commenters = ""
 
 	# get tokens till the shlexer returns None
-	last = False
+	stop = False
+
+	current_n = 0
+	current = ""
+	comment = ""
+
 	while (t := shlexer.get_token()) is not None:
 		if t == '(':
 			continue
 		elif t == ')':
-			last = True
+			stop = True
+		elif t == '#':
+			# consume till the end of line.
+			comment += '#' + ss.read()
 			break
+		elif len(comment) > 0:
+			comment += t
 		else:
-			n = len(list(braceexpand.braceexpand(t)))
-			arr.append((t, n))
-	return last
+			# flush the current if any
+			if current_n > 0:
+				adder((current, comment, current_n))
 
-@dataclass(frozen=True)
-class SourceChecksumList:
-	sources: list[tuple[str, int]]
-	checksums: list[str]
+			current = t
+			current_n = len(list(braceexpand.braceexpand(t)))
 
-	sources_start_line: int
-	checksums_start_line: int
+	if current_n > 0:
+		adder((current, comment, current_n))
+
+	return stop
 
 
 def _get_sources_and_checksums_from_lines(lines: list[str]) -> SourceChecksumList:
-	sources: list[tuple[str, int]] = []
-	checksums: list[tuple[str, int]] = []
-	sources_start_line = 0
-	checksums_start_line = 0
+	sources: list[SourceEntry] = []
+	checksums: OrderedDict[str, list[ChecksumEntry]] = OrderedDict()
 
 	i: int = 0
 	while i < len(lines):
 		line = lines[i]
 		if line.startswith("source="):
-			sources_start_line = i
 			first = True
 			while i < len(lines):
 				l = lines[i]
 				i += 1
-				if _add_array(l, first, sources):
+				if _add_array(l, first, lambda x: sources.append(SourceEntry(*x))):
 					break
 				first = False
 
@@ -160,13 +166,13 @@ def _get_sources_and_checksums_from_lines(lines: list[str]) -> SourceChecksumLis
 			continue
 
 		# known_hash_algos=({ck,md5,sha{1,224,256,384,512},b2})
-		elif re.match(r"(ck|md5|(?:sha(?:1|224|256|384|512))|b2)sums=", line) is not None:
-			checksums_start_line = i
+		elif (m := re.match(r"(ck|md5|(?:sha(?:1|224|256|384|512))|b2)sums=", line)) is not None:
+			algo = m.groups()[0]
 			first = True
 			while i < len(lines):
 				l = lines[i]
 				i += 1
-				if _add_array(l, first, checksums):
+				if _add_array(l, first, lambda x: checksums.setdefault(algo, []).append(ChecksumEntry(x[0], x[1]))):
 					break
 				first = False
 
@@ -175,7 +181,7 @@ def _get_sources_and_checksums_from_lines(lines: list[str]) -> SourceChecksumLis
 
 		i += 1
 
-	return SourceChecksumList(sources, [c for c, _ in checksums], sources_start_line, checksums_start_line)
+	return SourceChecksumList(sources, checksums)
 
 
 def _get_src_filename(src: str) -> str:
@@ -186,91 +192,134 @@ def _get_src_filename(src: str) -> str:
 	else:
 		return src
 
-def _patch_pkgbuild_sources(upstream_lines: list[str], local_lines: list[str]) -> tuple[str, str]:
+def _patch_pkgbuild_sources(upstream_lines: list[str], local_lines: list[str], ignored_srcs: list[str]) -> tuple[str, str]:
 	# get the list of sources for each.
 	uu = _get_sources_and_checksums_from_lines(upstream_lines)
 	ll = _get_sources_and_checksums_from_lines(local_lines)
-	usrcs = uu.sources
-	uchks = uu.checksums
-	lsrcs = ll.sources
-	lchks = ll.checksums
+
+	final_sources: list[SourceEntry] = []
+	final_checksums: OrderedDict[str, list[ChecksumEntry]] = OrderedDict()
 
 	# for each local source, see if there is an upstream source that matches
 	# if so, then *replace* the local source string (in the pkgbuild file) with the upstream string
 	# (and replace the checksums as well)
-	replacements: dict[str, str] = {}
-
-	lcofs: int = 0
-	for l in range(len(lsrcs)):
+	processed_local_srcs: set[int] = set()
+	for l in range(len(ll.sources)):
 		ucofs: int = 0
-		for u in range(len(usrcs)):
-			if _get_src_filename(usrcs[u][0]) == _get_src_filename(lsrcs[l][0]):
-				if usrcs[u][1] != lsrcs[l][1]:
+		for u in range(len(uu.sources)):
+			if _get_src_filename(uu.sources[u].value) == _get_src_filename(ll.sources[l].value):
+				if uu.sources[u].expanded_count != ll.sources[l].expanded_count:
 					msg.warn2(f"Mismatched number of checksum entries; patching may be unsuccessful")
-				nc = min(usrcs[u][1], lsrcs[l][1])
 
-				if lsrcs[l][0] != usrcs[u][0]:
-					replacements[lsrcs[l][0]] = usrcs[u][0]
+				nc: int = min(uu.sources[u].expanded_count, ll.sources[l].expanded_count)
+				final_sources.append(uu.sources[u])
+				processed_local_srcs.add(l)
 
-				for c in range(nc):
-					if lchks[c+lcofs] != uchks[c+ucofs]:
-						replacements[lchks[c+lcofs]] = uchks[c+ucofs]
-			ucofs += usrcs[u][1]
-		lcofs += lsrcs[l][1]
+				for ck in uu.checksums.keys():
+					for c in range(nc):
+						final_checksums.setdefault(ck, []).append(uu.checksums[ck][c+ucofs])
+				break
+
+			ucofs += uu.sources[u].expanded_count
+
 
 	# now the other way -- look for new sources in upstream
 	ucofs: int = 0
-	splice_offset1: int = min(ll.sources_start_line, ll.checksums_start_line)
-	splice_offset2: int = max(ll.sources_start_line, ll.checksums_start_line)
-
-	for u in range(len(usrcs)):
-		lcofs: int = 0
+	for u in range(len(uu.sources)):
 		found: bool = False
-		for l in range(len(lsrcs)):
-			found = found or (_get_src_filename(usrcs[u][0]) == _get_src_filename(lsrcs[l][0]))
-			lcofs += lsrcs[l][1]
+		for l in range(len(ll.sources)):
+			found = found or (_get_src_filename(uu.sources[u].value) == _get_src_filename(ll.sources[l].value))
 			if found:
 				break
 
 		if not found:
-			nc = usrcs[u][1]
-			new_chks = upstream_lines[uu.checksums_start_line+ucofs:][:nc]
-			new_srcs = [upstream_lines[uu.sources_start_line + u]]
+			nc = uu.sources[u].expanded_count
+			if not any(fnmatch.fnmatch(uu.sources[u].value, x) for x in ignored_srcs):
+				final_sources.append(uu.sources[u])
+				for ck in uu.checksums.keys():
+					for c in range(nc):
+						final_checksums.setdefault(ck, []).append(uu.checksums[ck][c+ucofs])
 
-			# use the line info to "splice" the new source and checksum into the local file lines.
-			if ll.sources_start_line < ll.checksums_start_line:
-				# sources array is before checksums array; do the latter first.
-				local_lines = local_lines[:ucofs+splice_offset2] + new_chks + local_lines[ucofs+splice_offset2:]
-				local_lines = local_lines[:u+splice_offset1] + new_srcs + local_lines[u+splice_offset1:]
+		ucofs += uu.sources[u].expanded_count
 
-				splice_offset1 += len(new_srcs) - 1
-				splice_offset2 += len(new_srcs) + len(new_chks) - 1
-			else:
-				# checksums array is before sources array; do the latter first.
-				local_lines = local_lines[:u+splice_offset2] + new_srcs + local_lines[u+splice_offset2:]
-				local_lines = local_lines[:ucofs+splice_offset1] + new_chks + local_lines[ucofs+splice_offset1:]
+	# finally, any local sources that are not found upstream (ie. any custom ones)
+	lcofs: int = 0
+	for l in range(len(ll.sources)):
+		nc: int = ll.sources[l].expanded_count
 
-				splice_offset1 += len(new_srcs) + len(new_chks) - 1
-				splice_offset2 += len(new_srcs) - 1
+		if l not in processed_local_srcs:
+			final_sources.append(ll.sources[l])
+			for ck in ll.checksums.keys():
+				for c in range(nc):
+					final_checksums.setdefault(ck, []).append(ll.checksums[ck][c+lcofs])
 
-		ucofs += usrcs[u][1]
+		lcofs += nc
 
-
-	# now we have the replacements; feed the replacements through all our local lines, then run
-	# the diff; this should "automagically" give us the new source files from upstream, without
-	# screwing up any changes that they might have made.
-
+	# upstream is unmodified
 	upstream = '\n'.join(upstream_lines) + "\n"
-	local = '\n'.join(local_lines) + "\n"
-	for s, r in replacements.items():
-		local = local.replace(s, r)
+
+	# local is without the source array or any checksum array,
+	# then manually appended with our patched versions
+	fixed_local_lines: list[str] = []
+
+
+	i: int = 0
+	while i < len(local_lines):
+		line = local_lines[i]
+		if line.startswith("source="):
+			first = True
+			while i < len(local_lines):
+				l = local_lines[i]
+				i += 1
+				if _add_array(l, first, lambda _: None):
+					break
+				first = False
+
+			# append our fixed sources array
+			fixed_local_lines.append("source=(")
+			for src in final_sources:
+				c = ('  ' + src.comment) if len(src.comment) > 0 else ''
+				fixed_local_lines.append(f"  {src.value}{c}")   # it should be safe to not quote these...
+			fixed_local_lines.append(')')
+
+			# don't i += 1 again
+			continue
+
+		# known_hash_algos=({ck,md5,sha{1,224,256,384,512},b2})
+		elif (m := re.match(r"(ck|md5|(?:sha(?:1|224|256|384|512))|b2)sums=", line)) is not None:
+			algo = m.groups()[0]
+			first = True
+			while i < len(local_lines):
+				l = local_lines[i]
+				i += 1
+				if _add_array(l, first, lambda _: None):
+					break
+				first = False
+
+			fixed_local_lines.append(f"{algo}sums=(")
+			for cks in final_checksums[algo]:
+				c = ('  ' + cks.comment) if len(cks.comment) > 0 else ''
+				fixed_local_lines.append(f"  \'{cks.value}\'{c}")   # single quote these because they usually always are
+
+			fixed_local_lines.append(')')
+
+			# don't i += 1 again
+			continue
+
+		else:
+			fixed_local_lines.append(line)
+
+		i += 1
+
+
+	local = '\n'.join(fixed_local_lines) + "\n"
 
 	return (upstream, local)
 
 
 
 
-def _generate_diff_for_pkgbuild(pkg_url: str, upstream_sha: str, local_path: str) -> Optional[FileDiff]:
+def _generate_diff_for_pkgbuild(pkg_url: str, upstream_sha: str, local_path: str, ignored_srcs: list[str]) -> Optional[FileDiff]:
 	# pkgbuilds are more annoying. the main reason is that upstream will update
 	# the pkgver, so obviously we don't want to "patch" it back to the old version
 	# (that defeats the entire purpose).
@@ -303,7 +352,7 @@ def _generate_diff_for_pkgbuild(pkg_url: str, upstream_sha: str, local_path: str
 	upstream_lines = _patch_offensive_lines_in_pkgbuild(resp.text.splitlines())
 	local_lines = _patch_offensive_lines_in_pkgbuild(open(local_path, "r").read().splitlines())
 
-	upstream, local = _patch_pkgbuild_sources(upstream_lines, local_lines)
+	upstream, local = _patch_pkgbuild_sources(upstream_lines, local_lines, ignored_srcs)
 
 	with tempfile.NamedTemporaryFile("w") as f1, tempfile.NamedTemporaryFile("w") as f2:
 		f1.write(upstream)
@@ -326,6 +375,30 @@ def _generate_diff_for_pkgbuild(pkg_url: str, upstream_sha: str, local_path: str
 
 
 
+def _generate_diff(pkg_url: str, upstream_sha: str, local_path: str) -> Optional[FileDiff]:
+	resp = req.get(f"{UPSTREAM_URL_BASE}/api/v4/projects/{pkg_url}/repository/blobs/{upstream_sha}/raw")
+	if resp.status_code != 200:
+		msg.error(f"Could not fetch upstream file content: {resp.text}")
+		return None
+
+	files = ["-", os.path.normpath(local_path)]
+	if not os.path.exists(local_path):
+		files.reverse()
+
+	# ignore the exit code
+	filename = os.path.basename(local_path)
+	output = subprocess.run(["diff", "-Nd", "--unified=1", f"--label={filename}", f"--label={filename}", *files],
+		text=True, input=resp.text, check=False, capture_output=True)
+
+	if output.returncode == 2:
+		msg.warn2(f"Diff produced an error: {output.stderr}")
+		return None
+	elif output.returncode == 0:
+		return FileDiff(name=filename, diff="", upstream=resp.text)
+
+	return FileDiff(name=filename, diff=output.stdout, upstream=resp.text)
+
+
 def diff_package(pkg_path: str, quiet: bool = False) -> Optional[PackageDiff]:
 	pkgbuild_path = f"{pkg_path}/PKGBUILD"
 	if not os.path.exists(pkgbuild_path):
@@ -335,13 +408,13 @@ def diff_package(pkg_path: str, quiet: bool = False) -> Optional[PackageDiff]:
 	if not quiet:
 		msg.log(f"Processing {pkgbase}")
 
-	ignored: list[str] = [".SRCINFO", "*.desktop"]
+	ignored_srcs: list[str] = [".SRCINFO", "*.desktop"]
 	if os.path.exists(f"{pkg_path}/.pmdiffignore"):
 		with open(f"{pkg_path}/.pmdiffignore", "r") as f:
-			ignored.extend(map(lambda s: s.strip(), f.readlines()))
+			ignored_srcs.extend(map(lambda s: s.strip(), f.readlines()))
 
 			# weirdge
-			if "PKGBUILD" in ignored:
+			if "PKGBUILD" in ignored_srcs:
 				msg.log2(f"{msg.yellow('Ignoring upstream PKGBUILD')}")
 
 	# first get the list of files.
@@ -366,7 +439,7 @@ def diff_package(pkg_path: str, quiet: bool = False) -> Optional[PackageDiff]:
 		if obj["name"] == "PKGBUILD":
 			pkgbuild_idx = len(files)
 
-		if not any(fnmatch.fnmatch(obj["name"], x) for x in ignored):
+		if not any(fnmatch.fnmatch(obj["name"], x) for x in ignored_srcs):
 			files.append((obj["name"], obj["id"]))
 
 	if pkgbuild_idx is None:
@@ -383,7 +456,7 @@ def diff_package(pkg_path: str, quiet: bool = False) -> Optional[PackageDiff]:
 				msg.log2(f"{name}")
 
 			if name == "PKGBUILD":
-				patch = _generate_diff_for_pkgbuild(pkg_url, sha, f"{pkg_path}/{name}")
+				patch = _generate_diff_for_pkgbuild(pkg_url, sha, f"{pkg_path}/{name}", ignored_srcs)
 			else:
 				patch = _generate_diff(pkg_url, sha, f"{pkg_path}/{name}")
 

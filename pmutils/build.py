@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import sys
 import tempfile
 import subprocess as sp
 
@@ -12,6 +13,10 @@ from pmutils.registry import Registry
 
 def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, database: Optional[str],
 			upload: bool, install: bool, confirm: bool = True, allow_downgrade: bool = False):
+
+	if sys.base_prefix != sys.prefix:
+		msg.error_and_exit(f"Cannot build packages from within a virtual environment!")
+
 	args = ["makepkg", "-f"]
 	if not check:
 		args += ["--nocheck"]
