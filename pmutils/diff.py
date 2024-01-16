@@ -6,10 +6,10 @@ import os
 import io
 import re
 import shlex
+import bracex
 import fnmatch
 import tempfile
 import subprocess
-import braceexpand
 
 from typing import *
 from pmutils import msg, util
@@ -138,7 +138,7 @@ def _add_array(line: str, first: bool, adder: Callable[[tuple[str, str, int]], N
 				adder((current, comment, current_n))
 
 			current = t
-			current_n = len(list(braceexpand.braceexpand(t)))
+			current_n = len(list(bracex.expand(t)))
 
 	if current_n > 0:
 		adder((current, comment, current_n))
