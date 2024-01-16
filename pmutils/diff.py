@@ -33,6 +33,15 @@ class FileDiff:
 class PackageDiff:
 	files: Iterator[FileDiff]
 
+def _make_shlexer(s: str, *, comments: bool) -> shlex.shlex:
+	ss = io.StringIO(s)
+	shlexer = shlex.shlex(ss, posix=True, punctuation_chars=True)
+	shlexer.wordchars += "{$:/,+}#"
+	if not comments:
+		shlexer.commenters = ""
+
+	return shlexer
+
 
 
 def _patch_offensive_lines_in_pkgbuild(lines: list[str]) -> list[str]:
@@ -54,25 +63,17 @@ def _patch_offensive_lines_in_pkgbuild(lines: list[str]) -> list[str]:
 			ret.append(f"_build_date='January 1, 1970'")
 		elif line.startswith("source="):
 			while i < len(lines):
-				s = re.sub(r"#tag=([A-Fa-f0-9]+)", "#tag=AAAAAAAA", lines[i])
+				s = re.sub(r"#tag=(\w+)", "#tag=AAAAAAAA", lines[i])
 				s = re.sub(r"#commit=([A-Fa-f0-9]+)", "#commit=AAAAAAAA", s)
 				s = re.sub(r"#revision=([A-Fa-f0-9]+)", "#revision=AAAAAAAA", s)
 				i += 1
 
-				# ideally, one line should correspond to one source; i've never seen a PKGBUILD
-				# that violates this, but it might happen. do not shlex comments, handle them manually!
-				# there's often a `# tag: v2.3.1` thing after a commit; we also need to exclude this from the diff.
-				ss = io.StringIO(s)
-				shlexer = shlex.shlex(ss, posix=True, punctuation_chars=True)
-				shlexer.commenters = ""
-
+				shlexer = _make_shlexer(s, comments=True)
 
 				# get tokens till the shlexer returns None
 				last = False
 				while (t := shlexer.get_token()) is not None:
-					if t == '#' and ss.tell() > 0:
-						s = s[:ss.tell() - 1]
-					elif t == ')':
+					if t == ')':
 						last = True
 
 				ret.append(s)
@@ -109,9 +110,7 @@ def _add_array(line: str, first: bool, adder: Callable[[tuple[str, str, int]], N
 		line = line.split('=', maxsplit=1)[1]
 
 	ss = io.StringIO(line)
-	shlexer = shlex.shlex(ss, posix=True, punctuation_chars=True)
-	shlexer.wordchars += "{$:/,+}"
-	shlexer.commenters = ""
+	shlexer = _make_shlexer(line, comments=False)
 
 	# get tokens till the shlexer returns None
 	stop = False
