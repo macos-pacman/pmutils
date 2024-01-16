@@ -52,8 +52,8 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 		if install:
 			msg.log("Installing package(s)")
 			try:
-				sp.check_call(["sudo", "pacman", *["" if confirm else "--noconfirm"],
-					"-U", *[ f"{tmp}/{x}" for x in packages ]])
+				sp.check_call(["sudo", "pacman", *([] if confirm else ["--noconfirm"]),
+					"-U", *[f"{tmp}/{x}" for x in packages]])
 			except:
 				msg.error_and_exit("Failed to install package!")
 
