@@ -7,7 +7,7 @@ import click
 
 from typing import *
 from pmutils.config import Config, config
-from pmutils import msg, build, check, diff, rebase
+from pmutils import msg, build, check, remote, rebase
 from pmutils.registry import Registry, Repository
 
 DEFAULT_CONFIG = "config.toml"
@@ -125,8 +125,12 @@ def cmd_check(ctx: Any, repo: str):
 
 
 @cli.command(name="diff", help="Generate diffs between local PKGBUILD and upstream (Arch Linux)")
+@click.option("-k", "--keep", is_flag=True, default=False, help="Keep old files after updating (useless without `--update`)")
+@click.option("-l", "--fetch", is_flag=True, default=False, help="Diff against the latest upstream files")
+@click.option("-f", "--force", is_flag=True, default=False, help="Proceed even if the working directory is dirty")
+@click.option("-u", "--update", is_flag=True, default=False, help="Update local files with the latest upstream version")
 @click.argument("package", required=True, nargs=-1, type=click.Path(exists=True))
-def cmd_diff(package: list[click.Path]):
+def cmd_diff(package: list[click.Path], force: bool, fetch: bool, update: bool, keep: bool):
 	for file in map(str, package):
 		if not os.path.isdir(file):
 			msg.log2(f"Skipping non-folder '{file}'")
@@ -135,10 +139,7 @@ def cmd_diff(package: list[click.Path]):
 			msg.log2(f"Skipping folder '{file}' with no PKGBUILD")
 			continue
 
-		if (dd := diff.diff_package(file)) is not None:
-			for d in dd.files:
-				with open(f"{file}/{d.name}.pmdiff", "w") as f:
-					f.write(d.diff)
+		remote.diff_package(file, force=force, keep_old=keep, fetch_latest=fetch, update_local=update)
 
 	msg.log("Done")
 
@@ -149,7 +150,6 @@ def cmd_diff(package: list[click.Path]):
 @click.option("--repo", default=None, metavar="REPO", help="Use REPO as the package repository")
 @click.option("-o", "--outdated", is_flag=True, default=False, help="Automatically rebase all outdated packages (requires `--repo`)")
 @click.option("-f", "--force", is_flag=True, default=False, help="Proceed even if the working directory is dirty")
-@click.option("-k", "--keep", is_flag=True, default=False, help="Keep pmdiff files even if patches apply cleanly")
 @click.option("-b", "--build", is_flag=True, default=False, help="Build packages after rebasing them")
 @click.option("-i", "--install", is_flag=True, default=False, help="Install packages after building them (implies `--build`)")
 @click.option("--allow-downgrade", is_flag=True, default=False, help="Allow downgrading packages when adding them to the repository")
@@ -157,7 +157,7 @@ def cmd_diff(package: list[click.Path]):
 @click.option("--commit/--no-commit", is_flag=True, default=True, help="Commit the patched files with git if successful")
 @click.option("--check/--no-check", help="Run the check() function in the PKGBUILD", default=True)
 def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdated: bool,
-	force: bool, keep: bool, build: bool, install: bool, check: bool, upload: bool, commit: bool, allow_downgrade: bool):
+	force: bool, build: bool, install: bool, check: bool, upload: bool, commit: bool, allow_downgrade: bool):
 
 	packages: list[str] = []
 	registry: Optional[Registry] = None
@@ -209,7 +209,7 @@ def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdate
 
 	fails: list[str] = []
 	for p in packages:
-		x = rebase.rebase_package(p, force=force, keep_diffs=keep,
+		x = rebase.rebase_package(p, force=force,
 			registry=registry, repository=r, build_pkg=build,
 			install_pkg=install, check_pkg=check, upload=upload, commit=commit, allow_downgrade=allow_downgrade)
 		if not x:

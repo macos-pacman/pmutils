@@ -58,6 +58,9 @@ def warn(msg: str):
 def error(msg: str):
 	print(f"{red('==> ERROR:')} {bold(msg)}", flush=True, file=sys.stderr)
 
+def error2(msg: str):
+	print(f"{red('  -> ERROR:')} {bold(msg)}", flush=True, file=sys.stderr)
+
 def error_and_exit(msg: str) -> NoReturn:
 	error(msg)
 	sys.exit(1)

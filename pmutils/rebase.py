@@ -8,7 +8,7 @@ import subprocess
 import contextlib
 
 from typing import *
-from pmutils import msg, diff, build, util
+from pmutils import msg, remote, build, util
 from pmutils.registry import Registry, Repository
 
 CHECKSUM_ALGOS = ["ck", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "b2"]
@@ -37,29 +37,16 @@ def _calc_checksum(kind: str, path: str) -> str:
 			msg.error_and_exit(f"Unsupported checksum algorithm '{kind}'")
 
 
-def _patch_file(d: diff.FileDiff, keep_diffs: bool, upstream_srcinfo: util.SrcInfo, hash_replacements: dict[str, str]) -> bool:
-	new_name = f"{d.name}.new"
-	with open(new_name, "w") as f:
-		f.write(d.upstream)
+def _patch_file(name: str, upstream_content: str, diff_content: str) -> bool:
+	new_name = f"{name}.new"
 
-	msg.log2(f"{d.name}", end='')
-	if d.new:
-		print(f": {msg.green('new')}")
-		os.rename(new_name, d.name)
-		return True
-
-	elif len(d.diff) == 0:
-		print(f": {msg.pink('no changes')}")
-		os.remove(new_name)
-		return True
+	msg.log2(f"{name}", end='')
+	with open(new_name, "w") as dst:
+		dst.write(upstream_content)
 
 	# check whether the thing can apply first
-	rc = subprocess.run(["patch", "--check", "-Ns", "-Vnone", new_name], input=d.diff,
+	rc = subprocess.run(["patch", "--check", "-Ns", "-Vnone", new_name], input=diff_content,
 		text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
-
-	if keep_diffs or rc != 0:
-		with open(f"{d.name}.pmdiff", "w") as f:
-			f.write(d.diff)
 
 	if rc != 0:
 		# for failed patches, write out the pmdiff.
@@ -67,22 +54,15 @@ def _patch_file(d: diff.FileDiff, keep_diffs: bool, upstream_srcinfo: util.SrcIn
 		return False
 
 	# ok, it can apply. now apply it for real.
-	subprocess.run(["patch", "-ENs", "-Vnone", new_name], input=d.diff, text=True, check=True)
-	os.rename(new_name, d.name)
-	print(f": {msg.green('ok')}")
+	subprocess.run(["patch", "-ENs", "-Vnone", new_name], input=diff_content, text=True, check=True)
 
-	if d.name != "PKGBUILD":
-		for src_idx, src in enumerate(upstream_srcinfo.fields["source"]):
-			if src == d.name:
-				for ca in CHECKSUM_ALGOS:
-					if f"{ca}sums" in upstream_srcinfo.fields:
-						hash_replacements[upstream_srcinfo.fields[f"{ca}sums"][src_idx]] = _calc_checksum(ca, d.name)
-				break
+	os.rename(new_name, name)
+	print(f": {msg.green('ok')}")
 
 	return True
 
 
-def rebase_package(pkg_dir: str, force: bool, keep_diffs: bool, *,
+def rebase_package(pkg_dir: str, force: bool, *,
 	registry: Optional[Registry] = None, repository: Optional[Repository] = None,
 	build_pkg: bool = False, install_pkg: bool = False, check_pkg: bool = False,
 	upload: bool = False, commit: bool = False, allow_downgrade: bool = False) -> bool:
@@ -98,77 +78,68 @@ def rebase_package(pkg_dir: str, force: bool, keep_diffs: bool, *,
 	pkgname = os.path.basename(pkg_dir)
 	msg.log(f"Updating {pkgname}")
 
-	with contextlib.chdir(pkg_dir) as _:
-		# run a git diff to see if dirty (if not force)
-		if not force:
-			git = subprocess.run(["git", "diff-index", "--name-only", "--relative", "HEAD"],
-				check=False, capture_output=True, text=True)
-			if git.returncode == 0 and len(git.stdout) > 0:
-				msg.warn2(f"Package folder '{pkg_dir}' is dirty, skipping")
-				return False
-
-	# make the diffs
-	if (pd := diff.diff_package(pkg_path=pkg_dir, quiet=True)) is None:
+	# make the diffs (note: diff_package already checks for a dirty working dir)
+	if (gen := remote.diff_package_lazy(pkg_path=pkg_dir, force=force, fetch_latest=True)) is None:
 		return False
 
-	# first get the srcinfo of the current PKGBUILD to get which checksums we need
-	# this is horrible; python has no goto, so...
 	with contextlib.chdir(pkg_dir) as _:
-		for _ in range(1):
-			pkgbuild = next(pd.files)
-			assert pkgbuild.name == "PKGBUILD"
-
-			hash_replacements: dict[str, str] = {}
-			local_srcinfo = util.get_srcinfo("./PKGBUILD")
-			upstream_srcinfo = util.get_srcinfo_from_string(pkgbuild.upstream)
-
-			for d in pd.files:
-				if not _patch_file(d, keep_diffs, upstream_srcinfo, hash_replacements):
-					have_fails = True
-
-			# ok now that we have all the hash replacements, patch the PKGBUILD, then replace the hashes
-			if not _patch_file(pkgbuild, keep_diffs, upstream_srcinfo, hash_replacements):
-				have_fails = True
-
-			# if we have fails, don't do any of the rest of the stuff
-			if have_fails:
+		local_srcinfo = util.get_srcinfo("./PKGBUILD")
+		for d, _ in gen:
+			if d is None:
 				break
 
-			with open(f"PKGBUILD", "r") as orig, open(f"PKGBUILD.tmp", "w") as new:
-				contents = orig.read()
-				for s, r in hash_replacements.items():
-					contents = contents.replace(s, r)
-				new.write(contents)
+			# if there's no diff:
+			diff_name = f"{d.name}.pmdiff"
+			if not os.path.exists(diff_name):
+				if not d.new:
+					msg.warn2(f"Diff file `{diff_name}` is missing!")
+					continue
+				else:
+					# just write the file out.
+					with open(d.name, "w") as f:
+						f.write(d.upstream)
+						continue
 
-			os.rename("PKGBUILD.tmp", "PKGBUILD")
+			with open(f"{d.name}.pmdiff", "r") as df:
+				have_fails |= (not _patch_file(name=d.name, upstream_content=d.upstream, diff_content=df.read()))
 
-			lv = local_srcinfo.version()
-			uv = upstream_srcinfo.version()
-			if uv < lv:
-				msg.warn2(f"Upstream version '{uv}' is older than local '{lv}'{' (not installing)' if install_pkg else ''}")
-				install_pkg = False
+		# get the srcinfo again, after patching
+		new_srcinfo = util.get_srcinfo("./PKGBUILD")
 
-			if (build_pkg or install_pkg) and (not have_fails):
-				if commit:
-					try:
-						# see if there are changes at all
-						if subprocess.check_output(["git", "status", "--porcelain", "."], text=True).strip() != "":
-							# note: we are still in the pkg directory.
-							msg.log2(f"Commiting changes")
-							subprocess.check_call(["git", "add", "-A", "."])
-							subprocess.check_call(["git", "commit", "-qam", f"{pkgname}: update to {uv}"])
-						else:
-							msg.log2(f"No changes to commit")
-					except:
-						msg.warn2(f"Commit failed!")
 
-				assert registry is not None
-				assert repository is not None
 
-				build.makepkg(registry=registry, verify_pgp=False, check=check_pkg, keep=(not upload),
-					database=repository.name, upload=upload, install=install_pkg,
-					confirm=False, allow_downgrade=allow_downgrade)
 
+	new_ver = new_srcinfo.version()
+	old_ver = local_srcinfo.version()
+	if new_ver < old_ver:
+		msg.warn2(f"Upstream version '{new_ver}' is " + \
+			f"older than local '{old_ver}'{' (not installing)' if install_pkg else ''}")
+
+		install_pkg = False
+	else:
+		msg.log2(f"Version: {old_ver} -> {new_ver}")
+
+	with contextlib.chdir(pkg_dir) as _:
+		if (build_pkg or install_pkg) and (not have_fails):
+			if commit:
+				try:
+					# see if there are changes at all
+					if subprocess.check_output(["git", "status", "--porcelain", "."], text=True).strip() != "":
+						# note: we are still in the pkg directory.
+						msg.log2(f"Commiting changes")
+						subprocess.check_call(["git", "add", "-A", "."])
+						subprocess.check_call(["git", "commit", "-qam", f"{pkgname}: update to {new_ver}"])
+					else:
+						msg.log2(f"No changes to commit")
+				except:
+					msg.warn2(f"Commit failed!")
+
+			assert registry is not None
+			assert repository is not None
+
+			build.makepkg(registry=registry, verify_pgp=False, check=check_pkg, keep=(not upload),
+				database=repository.name, upload=upload, install=install_pkg,
+				confirm=True, allow_downgrade=allow_downgrade)
 
 	if have_fails:
 		msg.warn2(f"Some patches failed to apply; use `.pmdiff` files to update manually")

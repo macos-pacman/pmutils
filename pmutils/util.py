@@ -5,6 +5,7 @@
 import os
 import shutil
 import tempfile
+import contextlib
 import subprocess
 
 from typing import *
@@ -65,9 +66,13 @@ def get_srcinfo(pkgbuild: str) -> SrcInfo:
 
 	# manually do the things; whatever makepkg does is too slow for some reason.
 	cmdline = f"source {pkgbuild} && source {pacman_root_dir}/usr/share/makepkg/srcinfo.sh && write_srcinfo"
-	srcinfo = subprocess.check_output(["bash", "-c", cmdline], text=True)
 
-	return _parse_srcinfo(srcinfo)
+	proc = subprocess.run(["bash", "-c", cmdline], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+	if proc.returncode != 0:
+		msg.error_and_exit(f"Failed to source PKGBUILD: {proc.stdout}")
+	else:
+		return _parse_srcinfo(proc.stdout)
 
 
 
@@ -84,3 +89,13 @@ def get_srcinfo_from_string(pkgbuild: str) -> SrcInfo:
 		srcinfo = subprocess.check_output(["bash", "-c", cmdline], text=True)
 		return _parse_srcinfo(srcinfo)
 
+
+
+def check_tree_dirty(path: str) -> bool:
+	with contextlib.chdir(path) as _:
+		# run a git diff to see if dirty (if not force)
+		git = subprocess.run(["git", "diff-index", "--name-only", "--relative", "HEAD"],
+			check=False, capture_output=True, text=True)
+		if git.returncode == 0 and len(git.stdout) > 0:
+			return True
+	return False
