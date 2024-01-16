@@ -3,39 +3,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import hashlib
 import subprocess
 import contextlib
 
 from typing import *
 from pmutils import msg, remote, build, util
 from pmutils.registry import Registry, Repository
-
-CHECKSUM_ALGOS = ["ck", "md5", "sha1", "sha224", "sha256", "sha384", "sha512", "b2"]
-
-def _calc_checksum(kind: str, path: str) -> str:
-	if kind == "ck":
-		return subprocess.check_output(["cksum", path], text=True).split(' ')[0]
-
-	with open(path, "rb") as f:
-		data = f.read()
-		if kind == "md5":
-			return hashlib.md5(data).hexdigest()
-		elif kind == "sha1":
-			return hashlib.sha1(data).hexdigest()
-		elif kind == "sha224":
-			return hashlib.sha224(data).hexdigest()
-		elif kind == "sha256":
-			return hashlib.sha256(data).hexdigest()
-		elif kind == "sha384":
-			return hashlib.sha384(data).hexdigest()
-		elif kind == "sha512":
-			return hashlib.sha512(data).hexdigest()
-		elif kind == "b2":
-			return hashlib.blake2b(data, digest_size=512//8).hexdigest()
-		else:
-			msg.error_and_exit(f"Unsupported checksum algorithm '{kind}'")
-
 
 def _patch_file(name: str, upstream_content: str, diff_content: str) -> bool:
 	new_name = f"{name}.new"

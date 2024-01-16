@@ -116,15 +116,15 @@ class PmDiffFile:
 
 
 def _generator(repo_url: str, ignored_srcs: list[str], upstream_sha: Optional[str]):
-	if (upstream_files := get_file_list(repo_url, ignored_srcs)) is None:
-		return None
-
 	if upstream_sha is None:
 		if (r := req.get(f"{repo_url}/commits/main")).status_code != 200:
 			msg.error2(f"Failed to get commit hash: {r.text}")
 			return None
 
 		upstream_sha = cast(dict[str, str], r.json())["id"]
+
+	if (upstream_files := get_file_list(repo_url, ignored_srcs, upstream_sha)) is None:
+		return None
 
 	diff_files: list[str] = []
 	clean_files: list[str] = []
