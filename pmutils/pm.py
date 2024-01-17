@@ -40,7 +40,7 @@ def cli(ctx: Any, config: str) -> int:
 @click.option("-k", "--keep", is_flag=True, default=False, help="Keep packages after uploading (do not delete)")
 @click.option("--allow-downgrade", is_flag=True, default=False, help="Allow downgrading packages when adding them to the repository")
 @click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload packages to remote repositories")
-@click.argument("repo", required=False)
+@click.option("--repo", metavar="REPO", required=False, help="Use the given repository instead of the default")
 @click.argument("package", required=True, nargs=-1, type=click.Path(exists=True, dir_okay=False))
 def db_add(ctx: Any,
 		   repo: Optional[str],
@@ -137,7 +137,7 @@ def cmd_check(ctx: Any, repo: Optional[str]):
 @cli.command(name="fetch", help="Fetch PKGBUILD recipes from upstream")
 @click.pass_context
 @click.option("-f", "--force", is_flag=True, default=False, help="Proceed even if the package directory exists and/or is dirty")
-@click.option("--repo", metavar="REPO", required=False, help="Update local files with the latest upstream version")
+@click.option("--repo", metavar="REPO", required=False, help="Use the given repository instead of the default")
 @click.argument("package", required=True, nargs=-1, type=click.STRING)
 def cmd_fetch(ctx: Any, package: list[str], repo: Optional[str], force: bool):
 	Config.load(ctx.meta["config_file"])
