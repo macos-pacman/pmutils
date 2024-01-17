@@ -4,6 +4,7 @@
 
 import os
 import click
+import importlib.metadata as im
 
 from typing import *
 from pmutils.config import Config, config
@@ -15,9 +16,8 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 @click.group(context_settings=CONTEXT_SETTINGS)
 @click.pass_context
-@click.option("-c", "--config", metavar="CONFIG", default=DEFAULT_CONFIG,
-			  required=False,
-			  help="The configuration file to use")
+@click.option("-c", "--config", metavar="CONFIG", default=DEFAULT_CONFIG, required=False, help="The configuration file to use")
+@click.version_option(im.version("pmutils"), "--version", "-V")
 def cli(ctx: Any, config: str) -> int:
 	if not os.path.exists(config):
 		xdg_home = os.getenv("XDG_CONFIG_HOME", f"{os.getenv('HOME')}/.config")
@@ -63,8 +63,10 @@ def db_add(ctx: Any,
 
 	msg.log(f"Processing {len(package)} new package{'' if len(package) == 1 else 's'}")
 	with msg.Indent():
-		for pkg in package:
-			r.database.add(str(pkg), verbose=verbose, allow_downgrade=allow_downgrade)
+		for pkg in map(str, package):
+			if pkg.endswith(".sig"):
+				continue
+			r.database.add(pkg, verbose=verbose, allow_downgrade=allow_downgrade)
 
 	if upload:
 		r.sync()

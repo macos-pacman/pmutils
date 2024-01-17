@@ -128,6 +128,8 @@ class Database:
 				print(f", {GREEN}done{ALL_OFF}")
 			else:
 				print("")
+		else:
+			print(f"")
 
 		return True
 
@@ -144,9 +146,11 @@ class Database:
 			time.sleep(0.5)
 
 		if (a := len(self._removals)) > 0:
+			rm = set(x.name for x in self._removals)
+
 			msg.log2(f"Removing {a} package{'' if a == 1 else 's'}")
 			try:
-				subprocess.check_call(["repo-remove", "--quiet", self._db_path, *[x.name for x in self._removals]])
+				subprocess.check_call(["repo-remove", "--quiet", self._db_path, *rm])
 			except:
 				msg.error_and_exit("Failed to remove package!")
 
