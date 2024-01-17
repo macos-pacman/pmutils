@@ -284,6 +284,7 @@ def cmd_build(ctx: Any, verify_pgp: bool,
 			  upload: bool,
 			  install: bool,
 			  repo: Optional[str],
+			  add: bool,
 			  allow_downgrade: bool):
 	"""Build a package"""
 
@@ -293,7 +294,7 @@ def cmd_build(ctx: Any, verify_pgp: bool,
 	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
 		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
 
-	build.makepkg(registry, verify_pgp=verify_pgp, check=check, keep=keep, database=repo,
+	build.makepkg(registry, verify_pgp=verify_pgp, check=check, keep=keep, database=(repo if add else None),
 		upload=upload, install=install, allow_downgrade=allow_downgrade)
 
 	msg.log("Done")
