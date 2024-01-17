@@ -142,6 +142,7 @@ def cmd_check(ctx: Any, repo: Optional[str]):
 @click.option("--repo", metavar="REPO", required=False, help="Use the given repository instead of the default")
 @click.argument("package", required=True, nargs=-1, type=click.STRING)
 def cmd_fetch(ctx: Any, package: list[str], repo: Optional[str], force: bool):
+	"""Fetch package sources from upstream, creating a new package locally"""
 	Config.load(ctx.meta["config_file"])
 
 	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
@@ -167,6 +168,7 @@ def cmd_fetch(ctx: Any, package: list[str], repo: Optional[str], force: bool):
 @click.option("--commit/--no-commit", is_flag=True, default=True, help="Commit the patched files with git if successful")
 @click.argument("package", required=True, nargs=-1, type=click.Path(exists=True))
 def cmd_diff(package: list[click.Path], force: bool, fetch: bool, update: bool, keep: bool, commit: bool):
+	"""Generates diffs between currently edited package sources and upstream"""
 	for file in map(str, package):
 		if not os.path.isdir(file):
 			msg.log2(f"Skipping non-folder '{file}'")
@@ -199,9 +201,10 @@ def cmd_diff(package: list[click.Path], force: bool, fetch: bool, update: bool, 
 @click.option("--commit/--no-commit", is_flag=True, default=True, help="Commit the patched files with git if successful")
 @click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload built packages to remote (requires `--build`)")
 @click.option("--check/--no-check", help="Run the check() function in the PKGBUILD", default=True)
+@click.option("--buildnum/--no-buildnum", help="Automatically increment the build number in the PKGBUILD", default=True)
 def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdated: bool,
-	force: bool, build: bool, install: bool, check: bool, upload: bool, commit: bool, allow_downgrade: bool):
-
+	force: bool, build: bool, install: bool, check: bool, upload: bool, commit: bool, allow_downgrade: bool, buildnum: bool):
+	"""Rebase patched package sources on top of latest upstream sources"""
 	packages: list[str] = []
 	registry: Optional[Registry] = None
 	r: Optional[Repository] = None
@@ -257,7 +260,8 @@ def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdate
 	for p in packages:
 		x = rebase.rebase_package(p, force=force,
 			registry=registry, repository=r, build_pkg=build,
-			install_pkg=install, check_pkg=check, upload=upload, commit=commit, allow_downgrade=allow_downgrade)
+			install_pkg=install, check_pkg=check, upload=upload, commit=commit, allow_downgrade=allow_downgrade,
+			update_buildnum=buildnum)
 		if not x:
 			fails.append(p)
 
@@ -274,6 +278,7 @@ def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdate
 @click.pass_context
 @click.option("--verify-pgp/--no-verify-pgp", help="Verify PGP signatures", default=False)
 @click.option("--check/--no-check", help="Run the check() function in the PKGBUILD", default=True)
+@click.option("--buildnum/--no-buildnum", help="Automatically increment the build number in the PKGBUILD", default=True)
 @click.option("--keep/--delete", help="Keep the built package after adding it (requires `--add`)", default=False)
 @click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload built packages to remote repositories")
 @click.option("--allow-downgrade", is_flag=True, default=False, help="Allow downgrading packages when adding them to the repository")
@@ -287,7 +292,8 @@ def cmd_build(ctx: Any, verify_pgp: bool,
 			  install: bool,
 			  repo: Optional[str],
 			  add: bool,
-			  allow_downgrade: bool):
+			  allow_downgrade: bool,
+			  buildnum: bool):
 	"""Build a package"""
 
 	Config.load(ctx.meta["config_file"])
@@ -296,8 +302,15 @@ def cmd_build(ctx: Any, verify_pgp: bool,
 	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
 		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
 
-	build.makepkg(registry, verify_pgp=verify_pgp, check=check, keep=keep, database=(repo if add else None),
-		upload=upload, install=install, allow_downgrade=allow_downgrade)
+	build.makepkg(registry,
+		verify_pgp=verify_pgp,
+		check=check,
+		keep=keep,
+		database=(repo if add else None),
+		upload=upload,
+		install=install,
+		allow_downgrade=allow_downgrade,
+		update_buildnum=buildnum)
 
 	msg.log("Done")
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 
-import os
 import time
 import tomllib
+import getpass
 import requests as req
 from selenium import webdriver
 from selenium.webdriver.common.by import By
@@ -13,6 +13,8 @@ token = f["registry"]["token"]
 ORG = "macos-pacman"
 
 package_urls: list[tuple[str, str]] = []
+
+password = getpass.getpass()
 
 # first get a list of packages
 page = 1
@@ -49,7 +51,8 @@ driver.get("https://github.com/login")
 driver.find_element(by=By.ID, value="login_field").clear()
 driver.find_element(by=By.ID, value="login_field").send_keys("macos-pacman-bot")
 driver.find_element(by=By.ID, value="password").clear()
-driver.find_element(by=By.ID, value="password").send_keys(open("pw", "r").read().strip())
+driver.find_element(by=By.ID, value="password").send_keys(password)
+del password
 
 time.sleep(1.0)
 
@@ -116,10 +119,3 @@ for pkg_url, pkg_name in package_urls:
 		print(e)
 		successed[pkg_name] = False
 		pass
-
-with open("PACKAGES.tmp", "w") as ff:
-	for _, pkg_name in package_urls:
-		if (pkg_name in successed) and successed[pkg_name]:
-			ff.write(f"{pkg_name}\n")
-
-# input()

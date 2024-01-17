@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import re
 import sys
 import tempfile
 import subprocess as sp
@@ -31,13 +32,51 @@ def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
 
 
 def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, database: Optional[str],
-			upload: bool, install: bool, confirm: bool = True, allow_downgrade: bool = False):
+			upload: bool,
+			install: bool,
+			allow_downgrade: bool,
+			update_buildnum: bool,
+			confirm: bool = True):
 
 	args = ["makepkg", "-f"]
 	if not check:
 		args += ["--nocheck"]
 	if not verify_pgp:
 		args += ["--skippgpcheck"]
+
+	if update_buildnum:
+		if not os.path.exists("PKGBUILD"):
+			msg.error_and_exit(f"Could not find PKGBUILD in the current directory")
+
+		new_name = ".PKGBUILD.new"
+
+		new_lines: list[str] = []
+		pkgrel_line_idx: Optional[int] = None
+		found_buildnum = False
+
+		with open("PKGBUILD", "r") as pkgbuild:
+			for line in pkgbuild.read().splitlines():
+				if (m := re.fullmatch(r"pkgrel\+=\"(?:\.(\d+))?\"", line)) is not None:
+					if (buildnum := m.groups()[0]) is None:
+						# it was empty (pkgrel+=""), so make it .1
+						new_lines.append('pkgrel+=".1"')
+					else:
+						new_lines.append(f'pkgrel+=".{int(buildnum)+1}"')
+					found_buildnum = True
+				else:
+					new_lines.append(line)
+					if line.startswith("pkgrel="):
+						pkgrel_line_idx = len(line)
+
+		if not found_buildnum:
+			assert pkgrel_line_idx is not None
+			new_lines = new_lines[:1+pkgrel_line_idx] + ['pkgrel+=".1"'] + new_lines[1+pkgrel_line_idx:]
+
+		with open(new_name, "w") as new:
+			new.write('\n'.join(new_lines))
+			new.write("\n")
+
+		os.rename(new_name, "PKGBUILD")
 
 	with tempfile.TemporaryDirectory() as tmp:
 		env = exit_virtual_environment(dict(os.environ))

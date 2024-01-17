@@ -36,9 +36,15 @@ def _patch_file(name: str, upstream_content: str, diff_content: str) -> bool:
 
 
 def rebase_package(pkg_dir: str, force: bool, *,
-	registry: Optional[Registry] = None, repository: Optional[Repository] = None,
-	build_pkg: bool = False, install_pkg: bool = False, check_pkg: bool = False,
-	upload: bool = False, commit: bool = False, allow_downgrade: bool = False) -> bool:
+	registry: Optional[Registry] = None,
+	repository: Optional[Repository] = None,
+	build_pkg: bool,
+	install_pkg: bool,
+	check_pkg: bool,
+	upload: bool,
+	commit: bool,
+	allow_downgrade: bool,
+	update_buildnum: bool) -> bool:
 
 	if not os.path.exists(pkg_dir) or not os.path.isdir(pkg_dir):
 		msg.warn(f"Skipping nonexistent folder '{pkg_dir}'")
@@ -119,7 +125,7 @@ def rebase_package(pkg_dir: str, force: bool, *,
 
 			build.makepkg(registry=registry, verify_pgp=False, check=check_pkg, keep=(not upload),
 				database=repository.name, upload=upload, install=install_pkg,
-				confirm=True, allow_downgrade=allow_downgrade)
+				confirm=True, allow_downgrade=allow_downgrade, update_buildnum=update_buildnum)
 
 	if have_fails:
 		msg.warn2(f"Some patches failed to apply; use `.pmdiff` files to update manually")

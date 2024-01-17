@@ -10,3 +10,4 @@ __pycache__
 /*.sublime-*
 /tmp
 /outdated.txt
+/selenium-venv
