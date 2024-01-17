@@ -17,7 +17,7 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 @click.group(context_settings=CONTEXT_SETTINGS)
 @click.pass_context
 @click.option("-c", "--config", metavar="CONFIG", default=DEFAULT_CONFIG, required=False, help="The configuration file to use")
-@click.version_option(im.version("pmutils"), "--version", "-V")
+@click.version_option(im.version("pmutils"), "--version", "-V", prog_name="pmutils")
 def cli(ctx: Any, config: str) -> int:
 	if not os.path.exists(config):
 		xdg_home = os.getenv("XDG_CONFIG_HOME", f"{os.getenv('HOME')}/.config")
