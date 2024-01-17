@@ -2,6 +2,7 @@
 # Copyright (c) 2023, zhiayang
 # SPDX-License-Identifier: Apache-2.0
 
+import os
 import tomllib
 
 from typing import *
@@ -55,7 +56,7 @@ class Config:
 		with open(path, "rb") as file:
 			f = tomllib.load(file)
 			if "registry" not in f:
-				msg.error_and_exit(f"missing 'registry' section in config file")
+				msg.error_and_exit(f"Missing 'registry' section in config file")
 
 			reg_url = _get(f["registry"], "url", "registry")
 			reg_token = _get(f["registry"], "token", "registry")
@@ -71,6 +72,9 @@ class Config:
 					r_database = _get(repo, "database", f"repository.{name}")
 					r_release_name = _get(repo, "release-name", f"repository.{name}")
 					r_root_dir = _get(repo, "root-dir", f"repository.{name}", required=False)
+					if (r_root_dir is not None) and (not os.path.isabs(r_root_dir)):
+						msg.error_and_exit(f"`root-dir` should be an absolute path")
+
 					registry.add_repository(name, r_remote, r_database, r_release_name, r_root_dir)
 
 			upstream_url = _get(f["upstream"], "url", "upstream") if "upstream" in f else None

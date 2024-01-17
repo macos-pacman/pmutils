@@ -93,6 +93,8 @@ def rebase_package(pkg_dir: str, force: bool, *,
 			f"older than local '{old_ver}'{' (not installing)' if install_pkg else ''}")
 
 		install_pkg = False
+	elif old_ver == new_ver:
+		msg.log2(f"Version: {msg.GREEN}{old_ver}{msg.ALL_OFF}")
 	else:
 		msg.log2(f"Version: {msg.GREY}{old_ver}{msg.ALL_OFF} {msg.BOLD}->{msg.ALL_OFF} {msg.GREEN}{new_ver}{msg.ALL_OFF}")
 

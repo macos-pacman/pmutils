@@ -11,11 +11,27 @@ from typing import *
 from pmutils import msg
 from pmutils.registry import Registry
 
+def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
+	if sys.base_prefix == sys.prefix:
+		return args.copy()
+
+	msg.log(f"Editing Python venv out of virtual environment")
+	env = args.copy()
+
+	venv = env["VIRTUAL_ENV"]
+
+	env.pop("VIRTUAL_ENV")
+	env.pop("VIRTUAL_ENV_PROMPT")
+	env.pop("_OLD_VIRTUAL_PATH")
+
+	# edit the path
+	new_path = ':'.join(filter(lambda x: x != f"{venv}/bin", env["PATH"].split(':')))
+	env["PATH"] = new_path
+	return env
+
+
 def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, database: Optional[str],
 			upload: bool, install: bool, confirm: bool = True, allow_downgrade: bool = False):
-
-	# if sys.base_prefix != sys.prefix:
-	# 	msg.error_and_exit(f"Cannot build packages from within a virtual environment!")
 
 	args = ["makepkg", "-f"]
 	if not check:
@@ -24,8 +40,9 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 		args += ["--skippgpcheck"]
 
 	with tempfile.TemporaryDirectory() as tmp:
-		env = os.environ
+		env = exit_virtual_environment(dict(os.environ))
 		env["PKGDEST"] = tmp
+
 		args += [f"PKGDEST={tmp}"]
 		try:
 			sp.check_call(args, env=env)

@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pmutils"
-version = "0.4.9"
+version = "0.4.10"
 authors = [{name="zhiayang", email="zhiayang@nowhere.com" }]
 description = "Package management utilities"
 readme = "README.md"
-dependencies = ["requests", "pyzstd", "click", "aiohttp", "bracex"]
+dependencies = ["requests", "pyzstd", "click", "aiohttp"]
 requires-python = ">=3.10"
 
 [project.scripts]

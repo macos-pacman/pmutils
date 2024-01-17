@@ -122,15 +122,15 @@ class PmDiffFile:
 
 
 
-def _generator(repo_url: str, ignored_srcs: list[str], upstream_sha: Optional[str]):
-	if upstream_sha is None:
+def _generator(repo_url: str, ignored_srcs: list[str], commit_sha: Optional[str]):
+	if commit_sha is None:
 		if (r := req.get(f"{repo_url}/commits/main")).status_code != 200:
 			msg.error2(f"Failed to get commit hash: {r.text}")
 			return None
 
-		upstream_sha = cast(dict[str, str], r.json())["id"]
+		commit_sha = cast(dict[str, str], r.json())["id"]
 
-	if (upstream_files := get_file_list(repo_url, ignored_srcs, upstream_sha)) is None:
+	if (upstream_files := get_file_list(repo_url, ignored_srcs, commit_sha)) is None:
 		return None
 
 	diff_files: list[str] = []
@@ -148,7 +148,7 @@ def _generator(repo_url: str, ignored_srcs: list[str], upstream_sha: Optional[st
 
 		yield (diff, None)
 
-	yield (None, PmDiffFile(upstream_sha, diff_files=diff_files, clean_files=clean_files, ignore_files=ignored_srcs))
+	yield (None, PmDiffFile(commit_sha, diff_files=diff_files, clean_files=clean_files, ignore_files=ignored_srcs))
 
 
 
@@ -165,8 +165,9 @@ def diff_package_lazy(pkg_path: str,
 
 	with contextlib.chdir(pkg_path) as _:
 		# run a git diff to see if dirty (if not force)
-		if not force and util.check_tree_dirty(pkg_path):
-			msg.warn2(f"Package folder '{pkg_path}' is dirty, skipping")
+		# only check for dirty pmdiff stuff
+		if not force and util.check_tree_dirty(pkg_path, check_patterns=["*.pmdiff", PMDIFF_JSON_FILE]):
+			msg.warn2(f"Package folder '{pkg_path}' contains uncommited diff files, skipping")
 			return None
 
 		# first get the list of files.
@@ -175,11 +176,11 @@ def diff_package_lazy(pkg_path: str,
 
 		if (pmdiff := PmDiffFile.load(f"./{PMDIFF_JSON_FILE}")) is None:
 			msg.log2(f"No {PMDIFF_JSON_FILE}: diffing against latest upstream")
-			return _generator(REPO_URL, DEFAULT_IGNORE_FILES, upstream_sha=None)
+			return _generator(REPO_URL, DEFAULT_IGNORE_FILES, commit_sha=None)
 
 		else:
 			commit = None if fetch_latest else pmdiff.upstream_commit
-			return _generator(REPO_URL, pmdiff.ignore_files, upstream_sha=commit)
+			return _generator(REPO_URL, pmdiff.ignore_files, commit_sha=commit)
 
 
 
@@ -200,7 +201,9 @@ def diff_package(pkg_path: str,
 	force: bool,
 	keep_old: bool = False,
 	update_local: bool = False,
-	fetch_latest: bool = False) -> bool:
+	fetch_latest: bool = False,
+	commit: bool = False
+) -> bool:
 
 	pkgbuild_path = f"{pkg_path}/PKGBUILD"
 	if not os.path.exists(pkgbuild_path):
@@ -223,5 +226,63 @@ def diff_package(pkg_path: str,
 			msg.log2(f"{diff.name}")
 			save_diff(diff, update_local=update_local, keep_old=keep_old)
 
+
+		# re-read the pkgbuild
+		ver = util.get_srcinfo(pkgbuild_path).version()
+
+		if commit:
+			try:
+				# see if there are changes at all
+				if subprocess.check_output(["git", "status", "--porcelain", "."], text=True).strip() != "":
+					# note: we are still in the pkg directory.
+					msg.log2(f"Commiting changes")
+					subprocess.check_call(["git", "add", "-A", "."])
+					subprocess.check_call(["git", "commit", "-qam", f"{pkgbase}: update to {ver}"])
+				else:
+					msg.log2(f"No changes to commit")
+			except:
+				msg.warn2(f"Commit failed!")
+
 	return True
 
+
+
+
+def fetch_upstream_package(root_dir: str, pkg_name: str, force: bool) -> bool:
+	msg.log(f"Fetching {pkg_name}")
+
+	pkg_dir = f"{root_dir}/{pkg_name}"
+	if not force and os.path.exists(f"{pkg_dir}"):
+		msg.error2(f"Path '{pkg_dir}' already exists!")
+		return False
+
+	os.makedirs(f"{pkg_dir}", exist_ok=force)
+
+	PKG_URL = urlparse.quote(f"{PACKAGE_NAMESPACE}/{pkg_name}", safe='')
+	REPO_URL = f"{UPSTREAM_URL_BASE}/api/v4/projects/{PKG_URL}/repository"
+
+	if (r := req.get(f"{REPO_URL}/commits/main")).status_code != 200:
+		msg.error2(f"Failed to get commit hash: {r.text}")
+		return False
+
+	commit_sha = cast(dict[str, str], r.json())["id"]
+	msg.log2(f"Commit: {commit_sha}")
+
+	with contextlib.chdir(pkg_dir) as _:
+		if (files := get_file_list(REPO_URL, DEFAULT_IGNORE_FILES, commit_sha)) is None:
+			return False
+
+		for file in files:
+			msg.log2(f"{file[0]}")
+			resp = req.get(f"{REPO_URL}/blobs/{file[1]}/raw")
+
+			if resp.status_code != 200:
+				msg.error2(f"Could not fetch file content: {resp.text}")
+				return False
+
+			with open(file[0], "w") as f:
+				f.write(resp.text)
+
+		PmDiffFile(commit_sha, [], [], DEFAULT_IGNORE_FILES).save()
+
+	return True

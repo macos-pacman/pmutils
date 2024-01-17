@@ -40,10 +40,10 @@ def cli(ctx: Any, config: str) -> int:
 @click.option("-k", "--keep", is_flag=True, default=False, help="Keep packages after uploading (do not delete)")
 @click.option("--allow-downgrade", is_flag=True, default=False, help="Allow downgrading packages when adding them to the repository")
 @click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload packages to remote repositories")
-@click.argument("repo", required=True)
+@click.argument("repo", required=False)
 @click.argument("package", required=True, nargs=-1, type=click.Path(exists=True, dir_okay=False))
 def db_add(ctx: Any,
-		   repo: str,
+		   repo: Optional[str],
 		   package: list[click.Path],
 		   verbose: bool,
 		   upload: bool,
@@ -53,6 +53,9 @@ def db_add(ctx: Any,
 
 	Config.load(ctx.meta["config_file"])
 	registry = config().registry
+
+	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
+		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
 
 	r = registry.get_repository(repo)
 	if r is None:
@@ -84,12 +87,15 @@ def db_add(ctx: Any,
 
 @cli.command(name="list", help="List packages in the database")
 @click.pass_context
-@click.argument("repo", required=True)
-def db_list(ctx: Any, repo: str):
+@click.argument("repo", required=False)
+def db_list(ctx: Any, repo: Optional[str]):
 	"""List packages in DATABASE"""
 
 	Config.load(ctx.meta["config_file"])
 	registry = config().registry
+
+	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
+		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
 
 	msg.log("Packages:")
 	r = registry.get_repository(repo)
@@ -116,12 +122,39 @@ def get_outdated_packages(repo: str, verbose: bool) -> list[str]:
 
 @cli.command(name="check", help="Check for out-of-date packages in the database")
 @click.pass_context
-@click.argument("repo", required=True)
-def cmd_check(ctx: Any, repo: str):
+@click.argument("repo", required=False)
+def cmd_check(ctx: Any, repo: Optional[str]):
 	Config.load(ctx.meta["config_file"])
+
+	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
+		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
 
 	"""Check packages in DATABASE for any out-of-date packages"""
 	get_outdated_packages(repo, verbose=True)
+
+
+
+@cli.command(name="fetch", help="Fetch PKGBUILD recipes from upstream")
+@click.pass_context
+@click.option("-f", "--force", is_flag=True, default=False, help="Proceed even if the package directory exists and/or is dirty")
+@click.option("--repo", metavar="REPO", required=False, help="Update local files with the latest upstream version")
+@click.argument("package", required=True, nargs=-1, type=click.STRING)
+def cmd_fetch(ctx: Any, package: list[str], repo: Optional[str], force: bool):
+	Config.load(ctx.meta["config_file"])
+
+	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
+		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
+
+	if (r := config().registry.get_repository(repo)) is None:
+		msg.error_and_exit(f"Repository '{repo}' does not exist")
+	elif r.root_dir is None:
+		msg.error_and_exit(f"`root-dir` not configured for repository, cannot fetch")
+
+	for pkg in package:
+		remote.fetch_upstream_package(root_dir=r.root_dir, pkg_name=pkg, force=force)
+
+	msg.log("Done")
+
 
 
 @cli.command(name="diff", help="Generate diffs between local PKGBUILD and upstream (Arch Linux)")
@@ -129,8 +162,9 @@ def cmd_check(ctx: Any, repo: str):
 @click.option("-l", "--fetch", is_flag=True, default=False, help="Diff against the latest upstream files")
 @click.option("-f", "--force", is_flag=True, default=False, help="Proceed even if the working directory is dirty")
 @click.option("-u", "--update", is_flag=True, default=False, help="Update local files with the latest upstream version")
+@click.option("--commit/--no-commit", is_flag=True, default=True, help="Commit the patched files with git if successful")
 @click.argument("package", required=True, nargs=-1, type=click.Path(exists=True))
-def cmd_diff(package: list[click.Path], force: bool, fetch: bool, update: bool, keep: bool):
+def cmd_diff(package: list[click.Path], force: bool, fetch: bool, update: bool, keep: bool, commit: bool):
 	for file in map(str, package):
 		if not os.path.isdir(file):
 			msg.log2(f"Skipping non-folder '{file}'")
@@ -139,22 +173,29 @@ def cmd_diff(package: list[click.Path], force: bool, fetch: bool, update: bool, 
 			msg.log2(f"Skipping folder '{file}' with no PKGBUILD")
 			continue
 
-		remote.diff_package(file, force=force, keep_old=keep, fetch_latest=fetch, update_local=update)
+		remote.diff_package(file, force=force, keep_old=keep, fetch_latest=fetch, update_local=update, commit=commit)
 
 	msg.log("Done")
+
+
+
+
+
+
+
 
 
 @cli.command(name="rebase", help="Automatically rebase PKGBUILDs on top of upstream (Arch Linux)")
 @click.pass_context
 @click.argument("package", required=False, nargs=-1, type=click.Path(exists=False))
-@click.option("--repo", default=None, metavar="REPO", help="Use REPO as the package repository")
+@click.option("--repo", required=False, default=None, metavar="REPO", help="Use REPO as the package repository")
 @click.option("-o", "--outdated", is_flag=True, default=False, help="Automatically rebase all outdated packages (requires `--repo`)")
 @click.option("-f", "--force", is_flag=True, default=False, help="Proceed even if the working directory is dirty")
 @click.option("-b", "--build", is_flag=True, default=False, help="Build packages after rebasing them")
 @click.option("-i", "--install", is_flag=True, default=False, help="Install packages after building them (implies `--build`)")
 @click.option("--allow-downgrade", is_flag=True, default=False, help="Allow downgrading packages when adding them to the repository")
-@click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload built packages to remote (requires `--build`)")
 @click.option("--commit/--no-commit", is_flag=True, default=True, help="Commit the patched files with git if successful")
+@click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload built packages to remote (requires `--build`)")
 @click.option("--check/--no-check", help="Run the check() function in the PKGBUILD", default=True)
 def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdated: bool,
 	force: bool, build: bool, install: bool, check: bool, upload: bool, commit: bool, allow_downgrade: bool):
@@ -163,21 +204,24 @@ def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdate
 	registry: Optional[Registry] = None
 	r: Optional[Repository] = None
 
+	Config.load(ctx.meta["config_file"])
+	registry = config().registry
+
 	if repo is not None:
-		Config.load(ctx.meta["config_file"])
-		registry = config().registry
 		if (r := registry.get_repository(repo)) is None:
 			msg.error_and_exit(f"Repository {repo} does not exist")
+	elif (rn := registry.get_default_repository()) is not None:
+			r = registry.get_repository(rn)
 
 	if outdated:
-		if repo is None:
+		if r is None:
 			msg.error_and_exit(f"`--outdated` flag requires `--repo` to be provided")
 
 		assert r is not None
 		if r.root_dir is None:
 			msg.error_and_exit(f"Cannot rebase packages without configured `root-dir` setting")
 
-		pp = get_outdated_packages(repo=repo, verbose=False)
+		pp = get_outdated_packages(repo=r.name, verbose=False)
 		wanted = set(map(str, package))
 
 		# get the list of outdated packages.
@@ -231,23 +275,31 @@ def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdate
 @click.option("--keep/--delete", help="Keep the built package after adding it (requires `--add`)", default=False)
 @click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload built packages to remote repositories")
 @click.option("--allow-downgrade", is_flag=True, default=False, help="Allow downgrading packages when adding them to the repository")
-@click.option("--add", "database", metavar="DATABASE", help="Add built package to the database", required=False)
+@click.option("--repo", metavar="REPO", help="Use the given repository when adding packages", required=False)
+@click.option("--add", is_flag=True, default=False, help="Add built package to the database")
 @click.option("-i", "--install", is_flag=True, help="Install the package after building")
 def cmd_build(ctx: Any, verify_pgp: bool,
 			  check: bool,
 			  keep: bool,
 			  upload: bool,
 			  install: bool,
-			  database: Optional[str],
+			  repo: Optional[str],
 			  allow_downgrade: bool):
 	"""Build a package"""
 
 	Config.load(ctx.meta["config_file"])
 	registry = config().registry
 
-	build.makepkg(registry, verify_pgp=verify_pgp, check=check, keep=keep, database=database,
+	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
+		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
+
+	build.makepkg(registry, verify_pgp=verify_pgp, check=check, keep=keep, database=repo,
 		upload=upload, install=install, allow_downgrade=allow_downgrade)
+
 	msg.log("Done")
+
+
+
 
 
 

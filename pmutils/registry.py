@@ -37,6 +37,11 @@ class Registry:
 	def url(self) -> str:
 		return self._url
 
+	def get_default_repository(self) -> Optional[str]:
+		if len(self._repos) == 1:
+			return list(self._repos.keys())[0]
+		return None
+
 	def add_repository(self, name: str, remote: str, db_file: str, release_name: str, root_dir: Optional[str] = None):
 		if name in self._repos:
 			msg.error_and_exit(f"duplicate repository '{name}'")

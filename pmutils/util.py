@@ -4,6 +4,7 @@
 
 import os
 import shutil
+import fnmatch
 import tempfile
 import contextlib
 import subprocess
@@ -91,11 +92,24 @@ def get_srcinfo_from_string(pkgbuild: str) -> SrcInfo:
 
 
 
-def check_tree_dirty(path: str) -> bool:
+def check_tree_dirty(path: str, check_patterns: list[str] = []) -> bool:
 	with contextlib.chdir(path) as _:
 		# run a git diff to see if dirty (if not force)
 		git = subprocess.run(["git", "diff-index", "--name-only", "--relative", "HEAD"],
 			check=False, capture_output=True, text=True)
-		if git.returncode == 0 and len(git.stdout) > 0:
+
+		if git.returncode != 0:
+			msg.error(f"Error running git: {git.stderr}")
 			return True
+
+		if len(git.stdout) > 0:
+			if len(check_patterns) == 0:
+				return True
+
+			# if there are patterns, then only consider files matching the pattern
+			for dirt in git.stdout.splitlines():
+				if any(fnmatch.fnmatch(dirt, pat) for pat in check_patterns):
+					return True
+			return False
+
 	return False
