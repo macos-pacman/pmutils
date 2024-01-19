@@ -387,23 +387,21 @@ def create_new_sandbox_with_downloaded_ipsw(bundle_path: str) -> Optional[VMSand
 	if total_size != ipsw_filesize:
 		msg.warn2(f"Reported filesizes mismatch: ipsw.me: {ipsw_filesize}, Apple: {total_size}")
 
-	# hasher = hashlib.sha256()
-	# with tempfile.NamedTemporaryFile("wb", suffix=".ipsw") as ipsw:
-	# 	with _download_bar(total_size) as bar:
-	# 		for data in dlreq.iter_content(chunk_size=1024 * 1024):
-	# 			size = ipsw.write(data)
-	# 			hasher.update(data)
+	hasher = hashlib.sha256()
+	with tempfile.NamedTemporaryFile("wb", suffix=".ipsw") as ipsw:
+		with _download_bar(total_size) as bar:
+			for data in dlreq.iter_content(chunk_size=1024 * 1024):
+				size = ipsw.write(data)
+				hasher.update(data)
 
-	# 			bar.update(size)
+				bar.update(size)
 
-	# 	if (sha := hasher.hexdigest()) != ipsw_sha256:
-	# 		msg.warn2(f"Checksum mismatch! Expected: {ipsw_sha256}")
-	# 		msg.warn2(f"                     Actual: {sha}")
+		if (sha := hasher.hexdigest()) != ipsw_sha256:
+			msg.warn2(f"Checksum mismatch! Expected: {ipsw_sha256}")
+			msg.warn2(f"                     Actual: {sha}")
 
-	# 	# make the vm with the file.
-	# 	return VMSandBox.create(bundle_path=bundle_path, ipsw_path=ipsw.name)
-
-	return VMSandBox.restore(bundle_path=bundle_path, ipsw_path="/tmp/macos13.6.ipsw")
+		# make the vm with the file.
+		return VMSandBox.restore(bundle_path=bundle_path, ipsw_path=ipsw.name)
 
 
 def load_or_create_sandbox(gui: bool,
