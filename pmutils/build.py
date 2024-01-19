@@ -9,8 +9,9 @@ import tempfile
 import subprocess as sp
 
 from typing import *
-from pmutils import msg, sandbox
+from pmutils import msg
 from pmutils.registry import Registry
+
 
 def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
 	if sys.base_prefix == sys.prefix:
@@ -31,20 +32,25 @@ def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
 	return env
 
 
-def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, database: Optional[str],
-			upload: bool,
-			install: bool,
-			allow_downgrade: bool,
-			update_buildnum: bool,
-			confirm: bool = True):
+def makepkg(
+    registry: Registry,
+    *,
+    verify_pgp: bool,
+    check: bool,
+    keep: bool,
+    database: Optional[str],
+    upload: bool,
+    install: bool,
+    allow_downgrade: bool,
+    update_buildnum: bool,
+    confirm: bool = True
+):
 
 	args = ["makepkg", "-f"]
 	if not check:
 		args += ["--nocheck"]
 	if not verify_pgp:
 		args += ["--skippgpcheck"]
-
-
 
 	if update_buildnum:
 		if not os.path.exists("PKGBUILD"):
@@ -77,7 +83,7 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 
 		if not found_buildnum:
 			assert pkgrel_line_idx is not None
-			new_lines = new_lines[:1+pkgrel_line_idx] + ['pkgrel+=".1"'] + new_lines[1+pkgrel_line_idx:]
+			new_lines = new_lines[:1 + pkgrel_line_idx] + ['pkgrel+=".1"'] + new_lines[1 + pkgrel_line_idx:]
 
 		with open(new_name, "w") as new:
 			new.write('\n'.join(new_lines))
@@ -90,12 +96,6 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 			print(f"{msg.GREEN}{new_buildnum or 1}{msg.ALL_OFF}")
 
 		os.rename(new_name, "PKGBUILD")
-
-	sb = sandbox.get_sandbox_config_for_pkgbuild("./PKGBUILD")
-	with open("config.sb", "w") as f:
-		f.write(str(sb))
-
-	args = ["/usr/bin/sandbox-exec", "-f", "config.sb", "--", *args]
 
 	with tempfile.TemporaryDirectory() as tmp:
 		env = exit_virtual_environment(dict(os.environ))
@@ -127,8 +127,9 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 		if install:
 			msg.log("Installing package(s)")
 			try:
-				sp.check_call(["sudo", "pacman", *([] if confirm else ["--noconfirm"]),
-					"-U", *[f"{tmp}/{x}" for x in packages]])
+				sp.check_call([
+				    "sudo", "pacman", *([] if confirm else ["--noconfirm"]), "-U", *[f"{tmp}/{x}" for x in packages]
+				])
 			except:
 				msg.error_and_exit("Failed to install package!")
 

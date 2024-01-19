@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import time
 import click
 import signal
 import contextlib
@@ -389,6 +390,9 @@ def cmd_sandbox(ctx: Any, gui: bool, restore: bool, bootstrap: bool, ipsw: Optio
 	if not vz.stopped:
 		msg.log2("Use Ctrl-C (or send SIGINT) to stop")
 		signal.signal(signal.SIGINT, lambda _1, _2: vz.stop(wait=False))
+
+		while vz.get_ip() is None:
+			time.sleep(0.5)
 
 	vz.wait()
 

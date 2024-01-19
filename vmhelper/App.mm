@@ -141,7 +141,7 @@ extern "C" void CPSEnableForegroundOperation(ProcessSerialNumber* psn);
 	vmView.capturesSystemKeys = YES;
 	vmView.virtualMachine = [self->vm vm];
 
-	auto rect = NSMakeRect(10, 10, 1280, 800);
+	auto rect = NSMakeRect(10, 10, 640, 400);
 	window = [[NSWindow alloc]
 	    initWithContentRect:rect
 	              styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable

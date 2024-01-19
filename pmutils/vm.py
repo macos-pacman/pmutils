@@ -10,6 +10,7 @@ import shutil
 import signal
 import hashlib
 import tempfile
+import functools
 import subprocess
 import requests as req
 import tqdm.auto as tqdm
@@ -19,6 +20,8 @@ from pmutils import msg
 from pmutils.config import config
 
 _vmhelper_path: str = ""
+
+PREFIX = "/opt/pacman"
 
 
 def get_vmhelper_path() -> Optional[str]:
@@ -99,7 +102,7 @@ class VMSandBox:
 	def stop(self, wait: bool = True):
 		msg.log("Stopping VM...")
 		if self.ip is not None:
-			self.send_command(f"sudo shutdown -h now")
+			self.send_command(f"sudo -n shutdown -h now")
 			time.sleep(2)
 
 		self.vmhelper.send_signal(signal.SIGINT)
@@ -184,7 +187,7 @@ class VMSandBox:
 				msg.warn2("Expected 'ok' -- retrying")
 				continue
 
-			if vz._get_ip() is None:
+			if vz.get_ip() is None:
 				msg.warn2(f"Could not get IP, please retry!")
 			else:
 				break
@@ -196,7 +199,7 @@ class VMSandBox:
 		return None
 
 	def bootstrap(self, ip_retries: int = 10) -> bool:
-		while (self._get_ip() is None):
+		while (self.get_ip() is None):
 			msg.error(f"Could not resolve VM IP, ", end='')
 			if ip_retries > 0:
 				print(msg.bold("retrying..."))
@@ -208,6 +211,8 @@ class VMSandBox:
 				return False
 
 		msg.log(f"Bootstrapping the VM...")
+
+		cmd = functools.partial(self.send_command, bootstrapping=True)
 
 		# check if a key already exists.
 		key_path = os.path.join(self.bundle, "..", "id_ed25519")
@@ -228,26 +233,25 @@ class VMSandBox:
 			return False
 
 		# only need to edit sudoers if we can't already sudo without a password
-		if self.send_command("sudo -n true")[1] != 0:
+		if cmd("sudo -n true")[1] != 0:
 			msg.log(f"Editing /etc/sudoers; enter your password when prompted")
-			self.send_command(f"echo '{self.user} ALL=(ALL) NOPASSWD: ALL' | sudo tee -a /etc/sudoers")
-			self.send_command("sudo echo 'You should see this with no password prompt required!'")
+			cmd(f"echo '{self.user} ALL=(ALL) NOPASSWD: ALL' | sudo tee -a /etc/sudoers")
 
 		msg.log(f"Setting hostname to 'pacman'")
-		self.send_command(f"sudo systemsetup -setcomputername 'pacman'")
+		cmd(f"sudo systemsetup -setcomputername 'pacman'")
 
 		msg.log(f"Ensuring timezones are the same")
 		host_tz = '/'.join(os.path.realpath('/etc/localtime').split('/')[-2:])
-		self.send_command(f"sudo systemsetup -settimezone '{host_tz}'")
+		cmd(f"sudo systemsetup -settimezone '{host_tz}'")
 
-		if self.send_command("xcode-select -p", capture=True)[1] != 0:
-			msg.log(f"Installing Xcode CLT...")
-			msg.log2(f"Looking for software updates")
+		if cmd("xcode-select -p", capture=True)[1] != 0:
+			msg.log(f"Installing Xcode CLT")
+			msg.log2(f"Looking for software updates...")
 
 			flag = "/tmp/.com.apple.dt.CommandLineTools.installondemand.in-progress"
-			self.send_command(f"sudo touch {flag}")
+			cmd(f"sudo touch {flag}")
 
-			prod = self.send_command(
+			prod = cmd(
 			    r"""softwareupdate -l                    |
 			    	grep -B 1 -E 'Command Line Tools'    |
 			    	awk -F'*' '/^ *\*/ {print $2}'       |
@@ -259,15 +263,15 @@ class VMSandBox:
 
 			msg.log2(f"Found: '{prod}'")
 
-			success = self.send_command(f"sudo softwareupdate --verbose --install \"{prod}\"")[1] == 0
+			success = cmd(f"sudo softwareupdate --verbose --install \"{prod}\"")[1] == 0
 
-			if not success or self.send_command("stat '/Library/Developer/CommandLineTools'", capture=True)[1] != 0:
+			if not success or cmd("stat '/Library/Developer/CommandLineTools'", capture=True)[1] != 0:
 				msg.error2(f"CLT failed to install, trying a different way...")
 				msg.log2(f"Please log in to the desktop and type 'ok' when done: ", end='')
 				_wait_for_ok()
 
 				msg.log2(f"Opening a terminal and running `xcode-select --install` the manual way...")
-				self.send_command(
+				cmd(
 				    "osascript -e 'tell application \"Terminal\" to do script \"sudo xcode-select --install\" in first window'",
 				    capture=True
 				)
@@ -275,14 +279,14 @@ class VMSandBox:
 				msg.log2(f"Hopefully that worked; type 'ok' if it did: ", end='')
 				_wait_for_ok()
 
-				if self.send_command("stat '/Library/Developer/CommandLineTools'", capture=True)[1] != 0:
+				if cmd("stat '/Library/Developer/CommandLineTools'", capture=True)[1] != 0:
 					msg.error2(f"Turns out it didn't work, sorry")
 					return False
 
-			self.send_command(f"sudo rm -f {flag}")
+			cmd(f"sudo rm -f {flag}")
 
 			# ok, it should exist now.
-			self.send_command("sudo xcode-select --switch /Library/Developer/CommandLineTools")
+			cmd("sudo xcode-select --switch /Library/Developer/CommandLineTools")
 			msg.log("Xcode CLT installed")
 
 		else:
@@ -291,31 +295,45 @@ class VMSandBox:
 		msg.log(f"Bootstrapping Pacman")
 
 		script_url = "https://raw.githubusercontent.com/macos-pacman/core/master/bootstrap/bootstrap.sh"
-		if self.send_command(f"curl -fsSL {script_url} > /tmp/bootstrap.sh")[1] != 0:
+		if cmd(f"curl -fsSL {script_url} > /tmp/bootstrap.sh")[1] != 0:
 			return False
 
-		if self.send_command(f"yes | /bin/sh /tmp/bootstrap.sh")[1] != 0:
+		if cmd(f"yes | /bin/sh /tmp/bootstrap.sh")[1] != 0:
 			return False
 
 		msg.log2(f"Re-installing base packages")
-		usr_bin = "/opt/pacman/usr/bin"
-		self.send_command(f"PATH={usr_bin}:$PATH sudo -E {usr_bin}/pacman -S --noconfirm --overwrite '/*' pacman")
+		cmd(f"PATH={PREFIX}/usr/bin:$PATH sudo -E {PREFIX}/usr/bin/pacman -S --noconfirm --overwrite '/*' pacman")
 
-		self.send_command("mv /opt/pacman/etc/pacman.conf{.pacnew,} || true")
-		self.send_command("mv /opt/pacman/etc/makepkg.conf{.pacnew,} || true")
+		cmd(f"mv {PREFIX}/etc/pacman.conf{{.pacnew,}} || true", capture=True)
+		cmd(f"mv {PREFIX}/etc/makepkg.conf{{.pacnew,}} || true", capture=True)
 
 		# ok, now bash should be installed, and everything should work (including the paths)...
 		# running `pacman` itself should just work.
 
 		msg.log(f"Done!")
-		self.stop()
+		msg.log(f"Installed packages:")
+		self.send_command(f"pacman -Q")
 
+		self.stop()
 		return True
 
-	def send_command(self, cmd: str, capture: bool = False, with_tty: bool = True) -> tuple[str, int]:
+	def send_command(self,
+	                 cmd: str,
+	                 bootstrapping: bool = False,
+	                 capture: bool = False,
+	                 with_tty: bool = True) -> tuple[str, int]:
 		key_path = os.path.join(self.bundle, "..", "id_ed25519")
 		p = subprocess.run(
-		    ["ssh", *(["-t"] if with_tty else []), *SSH_OPTIONS, "-i", key_path, f"{self.user}@{self.ip}", "--", cmd],
+		    [
+		        "ssh",
+		        *(["-t"] if with_tty else []),
+		        *SSH_OPTIONS,
+		        "-i",
+		        key_path,
+		        f"{self.user}@{self.ip}",
+		        "--",
+		        *([cmd] if bootstrapping else [f". {PREFIX}/etc/profile; {cmd}"])
+		    ],
 		    capture_output=capture,
 		    text=True,
 		)
@@ -325,7 +343,7 @@ class VMSandBox:
 		else:
 			return ("", p.returncode)
 
-	def _get_ip(self) -> Optional[str]:
+	def get_ip(self) -> Optional[str]:
 		for line in subprocess.check_output(["arp", "-a"], text=True).splitlines():
 			pat = r"\(([A-Fa-f0-9\.:]+)\) at ((?:[0-9A-Fa-f]{1,2}:){5}[0-9A-Fa-f]{1,2})"
 			if (m := re.search(pat, line)) is not None:
@@ -333,7 +351,7 @@ class VMSandBox:
 					continue
 
 				if _clean_mac_addr(m.groups()[1]) == self.mac_addr:
-					msg.log2(f"Found IP of VM: {m.groups()[0]}")
+					msg.log(f"VM IP address: {m.groups()[0]}")
 					self.ip = m.groups()[0]
 					break
 
