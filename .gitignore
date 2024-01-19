@@ -11,3 +11,5 @@ __pycache__
 /tmp
 /outdated.txt
 /selenium-venv
+*.ipsw
+*.img

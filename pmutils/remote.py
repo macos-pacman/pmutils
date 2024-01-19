@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright (c) 2024, zhiayang
 # SPDX-License-Identifier: Apache-2.0
 
@@ -106,7 +106,7 @@ class PmDiffFile:
 				upstream_commit=j["upstream_commit"],
 				diff_files=list(map(str, j.get("diff_files", []))),
 				clean_files=list(map(str, j.get("clean_files", []))),
-				ignore_files=list(map(str, j.get("ignore_files", []))) + DEFAULT_IGNORE_FILES
+				ignore_files=list(set(map(str, j.get("ignore_files", []))) | set(DEFAULT_IGNORE_FILES))
 			)
 
 	def save(self, path: str = PMDIFF_JSON_FILE):

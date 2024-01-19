@@ -12,14 +12,17 @@ from pmutils.registry import Registry
 
 __global_config: "Config"
 
+
 def config() -> "Config":
 	global __global_config
 	return __global_config
+
 
 def _set_config(cfg: "Config") -> "Config":
 	global __global_config
 	__global_config = cfg
 	return __global_config
+
 
 @dataclass(eq=True, frozen=True)
 class CheckerConfig:
@@ -36,13 +39,39 @@ class CheckerConfig:
 			obj = {}
 
 		return CheckerConfig(
-			check_out_of_date=obj.get("check-out-of-date", False),
-			ignore_pkgrel=obj.get("ignore-pkgrel", False),
-			ignore_haskell_pkgrel=obj.get("ignore-haskell-pkgrel", True),
-			ignore_packages=set(obj.get("ignore-packages", [])),
-			ignore_epochs=set(obj.get("ignore-package-epochs", []))
+		    check_out_of_date=obj.get("check-out-of-date", False),
+		    ignore_pkgrel=obj.get("ignore-pkgrel", False),
+		    ignore_haskell_pkgrel=obj.get("ignore-haskell-pkgrel", True),
+		    ignore_packages=set(obj.get("ignore-packages", [])),
+		    ignore_epochs=set(obj.get("ignore-package-epochs", []))
 		)
 
+
+DEFAULT_CPUS = 2
+DEFAULT_RAM = 8 * 1024 * 1024 * 1024
+DEFAULT_USERNAME = "pacman"
+
+
+@dataclass(frozen=True)
+class SandboxConfig:
+	path: Optional[str]
+	macos_build: Optional[str]
+	username: str
+	cpus: int
+	ram: int
+
+	@staticmethod
+	def load(obj: Optional[dict[str, Any]]) -> "SandboxConfig":
+		if obj is None:
+			obj = {}
+
+		return SandboxConfig(
+		    path=obj.get("path"),
+		    macos_build=obj.get("macos-build"),
+		    username=obj.get("username", DEFAULT_USERNAME),
+		    cpus=obj.get("cpus", DEFAULT_CPUS),
+		    ram=obj.get("ram", DEFAULT_RAM)
+		)
 
 
 @dataclass(eq=True, frozen=True)
@@ -50,6 +79,7 @@ class Config:
 	registry: Registry
 	upstream_url: Optional[str]
 	checker: CheckerConfig
+	sandbox: SandboxConfig
 
 	@staticmethod
 	def load(path: str) -> None:
@@ -78,8 +108,14 @@ class Config:
 					registry.add_repository(name, r_remote, r_database, r_release_name, r_root_dir)
 
 			upstream_url = _get(f["upstream"], "url", "upstream") if "upstream" in f else None
-			_set_config(Config(registry, upstream_url, CheckerConfig.load(f.get("checker"))))
-
+			_set_config(
+			    Config(
+			        registry,
+			        upstream_url,
+			        CheckerConfig.load(f.get("checker")),
+			        SandboxConfig.load(f.get("sandbox")),
+			    )
+			)
 
 
 def _get(c: dict[str, Any], k: str, aa: str, *, required: bool = True, default: Any = None) -> Any:
@@ -90,4 +126,3 @@ def _get(c: dict[str, Any], k: str, aa: str, *, required: bool = True, default: 
 			return default
 	else:
 		return c[k]
-

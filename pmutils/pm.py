@@ -4,19 +4,24 @@
 
 import os
 import click
+import signal
+import contextlib
 import importlib.metadata as im
 
 from typing import *
 from pmutils.config import Config, config
-from pmutils import msg, build, check, remote, rebase
+from pmutils import msg, build, check, remote, rebase, vm
 from pmutils.registry import Registry, Repository
 
 DEFAULT_CONFIG = "config.toml"
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
+
 @click.group(context_settings=CONTEXT_SETTINGS)
 @click.pass_context
-@click.option("-c", "--config", metavar="CONFIG", default=DEFAULT_CONFIG, required=False, help="The configuration file to use")
+@click.option(
+    "-c", "--config", metavar="CONFIG", default=DEFAULT_CONFIG, required=False, help="The configuration file to use"
+)
 @click.version_option(im.version("pmutils"), "--version", "-V", prog_name="pmutils")
 def cli(ctx: Any, config: str) -> int:
 	if not os.path.exists(config):
@@ -38,17 +43,24 @@ def cli(ctx: Any, config: str) -> int:
 @click.pass_context
 @click.option("-v", "--verbose", is_flag=True, default=False, help="Print verbose output")
 @click.option("-k", "--keep", is_flag=True, default=False, help="Keep packages after uploading (do not delete)")
-@click.option("--allow-downgrade", is_flag=True, default=False, help="Allow downgrading packages when adding them to the repository")
+@click.option(
+    "--allow-downgrade",
+    is_flag=True,
+    default=False,
+    help="Allow downgrading packages when adding them to the repository"
+)
 @click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload packages to remote repositories")
 @click.option("--repo", metavar="REPO", required=False, help="Use the given repository instead of the default")
 @click.argument("package", required=True, nargs=-1, type=click.Path(exists=True, dir_okay=False))
-def db_add(ctx: Any,
-		   repo: Optional[str],
-		   package: list[click.Path],
-		   verbose: bool,
-		   upload: bool,
-		   keep: bool,
-		   allow_downgrade: bool):
+def cmd_add(
+    ctx: Any,
+    repo: Optional[str],
+    package: list[click.Path],
+    verbose: bool,
+    upload: bool,
+    keep: bool,
+    allow_downgrade: bool
+):
 	"""Add PACKAGE files to the DATABASE"""
 
 	Config.load(ctx.meta["config_file"])
@@ -90,7 +102,7 @@ def db_add(ctx: Any,
 @cli.command(name="list", help="List packages in the database")
 @click.pass_context
 @click.argument("repo", required=False)
-def db_list(ctx: Any, repo: Optional[str]):
+def cmd_list(ctx: Any, repo: Optional[str]):
 	"""List packages in DATABASE"""
 
 	Config.load(ctx.meta["config_file"])
@@ -121,7 +133,6 @@ def get_outdated_packages(repo: str, verbose: bool) -> list[str]:
 	return check.check_packages(url, r, config().checker, verbose=verbose)
 
 
-
 @cli.command(name="check", help="Check for out-of-date packages in the database")
 @click.pass_context
 @click.argument("repo", required=False)
@@ -130,15 +141,15 @@ def cmd_check(ctx: Any, repo: Optional[str]):
 
 	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
 		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
-
 	"""Check packages in DATABASE for any out-of-date packages"""
 	get_outdated_packages(repo, verbose=True)
 
 
-
 @cli.command(name="fetch", help="Fetch PKGBUILD recipes from upstream")
 @click.pass_context
-@click.option("-f", "--force", is_flag=True, default=False, help="Proceed even if the package directory exists and/or is dirty")
+@click.option(
+    "-f", "--force", is_flag=True, default=False, help="Proceed even if the package directory exists and/or is dirty"
+)
 @click.option("--repo", metavar="REPO", required=False, help="Use the given repository instead of the default")
 @click.argument("package", required=True, nargs=-1, type=click.STRING)
 def cmd_fetch(ctx: Any, package: list[str], repo: Optional[str], force: bool):
@@ -159,13 +170,16 @@ def cmd_fetch(ctx: Any, package: list[str], repo: Optional[str], force: bool):
 	msg.log("Done")
 
 
-
 @cli.command(name="diff", help="Generate diffs between local PKGBUILD and upstream (Arch Linux)")
-@click.option("-k", "--keep", is_flag=True, default=False, help="Keep old files after updating (useless without `--update`)")
+@click.option(
+    "-k", "--keep", is_flag=True, default=False, help="Keep old files after updating (useless without `--update`)"
+)
 @click.option("-l", "--fetch", is_flag=True, default=False, help="Diff against the latest upstream files")
 @click.option("-f", "--force", is_flag=True, default=False, help="Proceed even if the working directory is dirty")
 @click.option("-u", "--update", is_flag=True, default=False, help="Update local files with the latest upstream version")
-@click.option("--commit/--no-commit", is_flag=True, default=True, help="Commit the patched files with git if successful")
+@click.option(
+    "--commit/--no-commit", is_flag=True, default=True, help="Commit the patched files with git if successful"
+)
 @click.argument("package", required=True, nargs=-1, type=click.Path(exists=True))
 def cmd_diff(package: list[click.Path], force: bool, fetch: bool, update: bool, keep: bool, commit: bool):
 	"""Generates diffs between currently edited package sources and upstream"""
@@ -182,28 +196,50 @@ def cmd_diff(package: list[click.Path], force: bool, fetch: bool, update: bool, 
 	msg.log("Done")
 
 
-
-
-
-
-
-
-
 @cli.command(name="rebase", help="Automatically rebase PKGBUILDs on top of upstream (Arch Linux)")
 @click.pass_context
 @click.argument("package", required=False, nargs=-1, type=click.Path(exists=False))
 @click.option("--repo", required=False, default=None, metavar="REPO", help="Use REPO as the package repository")
-@click.option("-o", "--outdated", is_flag=True, default=False, help="Automatically rebase all outdated packages (requires `--repo`)")
+@click.option(
+    "-o",
+    "--outdated",
+    is_flag=True,
+    default=False,
+    help="Automatically rebase all outdated packages (requires `--repo`)"
+)
 @click.option("-f", "--force", is_flag=True, default=False, help="Proceed even if the working directory is dirty")
 @click.option("-b", "--build", is_flag=True, default=False, help="Build packages after rebasing them")
-@click.option("-i", "--install", is_flag=True, default=False, help="Install packages after building them (implies `--build`)")
-@click.option("--allow-downgrade", is_flag=True, default=False, help="Allow downgrading packages when adding them to the repository")
-@click.option("--commit/--no-commit", is_flag=True, default=True, help="Commit the patched files with git if successful")
-@click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload built packages to remote (requires `--build`)")
+@click.option(
+    "-i", "--install", is_flag=True, default=False, help="Install packages after building them (implies `--build`)"
+)
+@click.option(
+    "--allow-downgrade",
+    is_flag=True,
+    default=False,
+    help="Allow downgrading packages when adding them to the repository"
+)
+@click.option(
+    "--commit/--no-commit", is_flag=True, default=True, help="Commit the patched files with git if successful"
+)
+@click.option(
+    "--upload/--no-upload", is_flag=True, default=True, help="Upload built packages to remote (requires `--build`)"
+)
 @click.option("--check/--no-check", help="Run the check() function in the PKGBUILD", default=True)
 @click.option("--buildnum/--no-buildnum", help="Automatically increment the build number in the PKGBUILD", default=True)
-def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdated: bool,
-	force: bool, build: bool, install: bool, check: bool, upload: bool, commit: bool, allow_downgrade: bool, buildnum: bool):
+def cmd_rebase(
+    ctx: Any,
+    package: list[click.Path],
+    repo: Optional[str],
+    outdated: bool,
+    force: bool,
+    build: bool,
+    install: bool,
+    check: bool,
+    upload: bool,
+    commit: bool,
+    allow_downgrade: bool,
+    buildnum: bool
+):
 	"""Rebase patched package sources on top of latest upstream sources"""
 	packages: list[str] = []
 	registry: Optional[Registry] = None
@@ -216,7 +252,7 @@ def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdate
 		if (r := registry.get_repository(repo)) is None:
 			msg.error_and_exit(f"Repository {repo} does not exist")
 	elif (rn := registry.get_default_repository()) is not None:
-			r = registry.get_repository(rn)
+		r = registry.get_repository(rn)
 
 	if outdated:
 		if r is None:
@@ -249,19 +285,28 @@ def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdate
 
 		# if the folder exists, assume it's a folder; otherwise, assume it's a package if we were given the repo.
 		def _folder_or_pkgname(p: str) -> str:
-			if (r is not None) and ('/' not in p) and ('.' not in p) and (r.root_dir is not None) and r.database.contains(p):
+			if (r is not None) and ('/' not in p) and ('.' not in p) and (r.root_dir
+			                                                              is not None) and r.database.contains(p):
 				return f"{r.root_dir}/{p}"
 			return p
 
 		packages = list(map(_folder_or_pkgname, map(str, package)))
 
-
 	fails: list[str] = []
 	for p in packages:
-		x = rebase.rebase_package(p, force=force,
-			registry=registry, repository=r, build_pkg=build,
-			install_pkg=install, check_pkg=check, upload=upload, commit=commit, allow_downgrade=allow_downgrade,
-			update_buildnum=buildnum)
+		x = rebase.rebase_package(
+		    p,
+		    force=force,
+		    registry=registry,
+		    repository=r,
+		    build_pkg=build,
+		    install_pkg=install,
+		    check_pkg=check,
+		    upload=upload,
+		    commit=commit,
+		    allow_downgrade=allow_downgrade,
+		    update_buildnum=buildnum
+		)
 		if not x:
 			fails.append(p)
 
@@ -273,7 +318,6 @@ def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdate
 	msg.log("Done")
 
 
-
 @cli.command(name="build", help="Build a local PKGBUILD")
 @click.pass_context
 @click.option("--verify-pgp/--no-verify-pgp", help="Verify PGP signatures", default=False)
@@ -281,19 +325,29 @@ def cmd_rebase(ctx: Any, package: list[click.Path], repo: Optional[str], outdate
 @click.option("--buildnum/--no-buildnum", help="Automatically increment the build number in the PKGBUILD", default=True)
 @click.option("--keep/--delete", help="Keep the built package after adding it (requires `--add`)", default=False)
 @click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload built packages to remote repositories")
-@click.option("--allow-downgrade", is_flag=True, default=False, help="Allow downgrading packages when adding them to the repository")
+@click.option(
+    "--allow-downgrade",
+    is_flag=True,
+    default=False,
+    help="Allow downgrading packages when adding them to the repository"
+)
 @click.option("--repo", metavar="REPO", help="Use the given repository when adding packages", required=False)
-@click.option("--add", is_flag=True, default=False, help="Add built package to the database")
+@click.option("-a", "--add", is_flag=True, default=False, help="Add built package to the database")
 @click.option("-i", "--install", is_flag=True, help="Install the package after building")
-def cmd_build(ctx: Any, verify_pgp: bool,
-			  check: bool,
-			  keep: bool,
-			  upload: bool,
-			  install: bool,
-			  repo: Optional[str],
-			  add: bool,
-			  allow_downgrade: bool,
-			  buildnum: bool):
+@click.argument("directory", required=False, nargs=1, type=click.Path(exists=True, dir_okay=True))
+def cmd_build(
+    ctx: Any,
+    verify_pgp: bool,
+    directory: Optional[str],
+    check: bool,
+    keep: bool,
+    upload: bool,
+    install: bool,
+    repo: Optional[str],
+    add: bool,
+    allow_downgrade: bool,
+    buildnum: bool
+):
 	"""Build a package"""
 
 	Config.load(ctx.meta["config_file"])
@@ -302,24 +356,41 @@ def cmd_build(ctx: Any, verify_pgp: bool,
 	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
 		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
 
-	build.makepkg(registry,
-		verify_pgp=verify_pgp,
-		check=check,
-		keep=keep,
-		database=(repo if add else None),
-		upload=upload,
-		install=install,
-		allow_downgrade=allow_downgrade,
-		update_buildnum=buildnum)
+	if directory is not None:
+		with contextlib.chdir(directory) as _:
+			build.makepkg(
+			    registry,
+			    verify_pgp=verify_pgp,
+			    check=check,
+			    keep=keep,
+			    database=(repo if add else None),
+			    upload=upload,
+			    install=install,
+			    allow_downgrade=allow_downgrade,
+			    update_buildnum=buildnum
+			)
 
 	msg.log("Done")
 
 
+@cli.command(name="sandbox", help="Start sandbox virtual machine")
+@click.option("--gui", is_flag=True, default=False, help="Run with the GUI open")
+@click.option("--restore", is_flag=True, default=False, help="Restore the VM")
+@click.option("--bootstrap", is_flag=True, default=False, help="Perform Pacman bootstrapping")
+@click.option("--ipsw", required=False, metavar="IPSW", help="The path to a local IPSW file to use for restoring")
+@click.pass_context
+def cmd_sandbox(ctx: Any, gui: bool, restore: bool, bootstrap: bool, ipsw: Optional[str]):
+	Config.load(ctx.meta["config_file"])
 
+	if (vz := vm.load_or_create_sandbox(gui=gui, restore=restore, bootstrap=bootstrap, ipsw_path=ipsw)) is None:
+		return
 
+	# wait till we get sigwait, then exit.
+	if not vz.stopped:
+		msg.log2("Use Ctrl-C (or send SIGINT) to stop")
+		signal.signal(signal.SIGINT, lambda _1, _2: vz.stop(wait=False))
 
-
-
+	vz.wait()
 
 
 def main() -> int:

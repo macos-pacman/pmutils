@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # Copyright (c) 2023, zhiayang
 # SPDX-License-Identifier: Apache-2.0
 
@@ -9,7 +9,7 @@ import tempfile
 import subprocess as sp
 
 from typing import *
-from pmutils import msg
+from pmutils import msg, sandbox
 from pmutils.registry import Registry
 
 def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
@@ -44,6 +44,8 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 	if not verify_pgp:
 		args += ["--skippgpcheck"]
 
+
+
 	if update_buildnum:
 		if not os.path.exists("PKGBUILD"):
 			msg.error_and_exit(f"Could not find PKGBUILD in the current directory")
@@ -51,7 +53,10 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 		new_name = ".PKGBUILD.new"
 
 		new_lines: list[str] = []
+		old_buildnum: Optional[int] = None
+		new_buildnum: Optional[int] = None
 		pkgrel_line_idx: Optional[int] = None
+
 		found_buildnum = False
 
 		with open("PKGBUILD", "r") as pkgbuild:
@@ -61,7 +66,9 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 						# it was empty (pkgrel+=""), so make it .1
 						new_lines.append('pkgrel+=".1"')
 					else:
-						new_lines.append(f'pkgrel+=".{int(buildnum)+1}"')
+						old_buildnum = int(buildnum)
+						new_buildnum = old_buildnum + 1
+						new_lines.append(f'pkgrel+=".{new_buildnum}"')
 					found_buildnum = True
 				else:
 					new_lines.append(line)
@@ -76,7 +83,19 @@ def makepkg(registry: Registry, *, verify_pgp: bool, check: bool, keep: bool, da
 			new.write('\n'.join(new_lines))
 			new.write("\n")
 
+		msg.log2(f"Updating build number: ", end='')
+		if old_buildnum:
+			print(f"{msg.GREY}{old_buildnum}{msg.ALL_OFF} -> {msg.GREEN}{new_buildnum or 1}{msg.ALL_OFF}")
+		else:
+			print(f"{msg.GREEN}{new_buildnum or 1}{msg.ALL_OFF}")
+
 		os.rename(new_name, "PKGBUILD")
+
+	sb = sandbox.get_sandbox_config_for_pkgbuild("./PKGBUILD")
+	with open("config.sb", "w") as f:
+		f.write(str(sb))
+
+	args = ["/usr/bin/sandbox-exec", "-f", "config.sb", "--", *args]
 
 	with tempfile.TemporaryDirectory() as tmp:
 		env = exit_virtual_environment(dict(os.environ))

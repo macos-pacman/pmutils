@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
+import pyalpm
 import shutil
 import fnmatch
 import tempfile
@@ -113,3 +114,69 @@ def check_tree_dirty(path: str, check_patterns: list[str] = []) -> bool:
 			return False
 
 	return False
+
+
+# get the pacman installation prefix
+_pacman_prefix: Optional[str] = None
+
+def get_pacman_prefix() -> str:
+	global _pacman_prefix
+	if _pacman_prefix is not None:
+		return _pacman_prefix
+
+	if (which_pacman := shutil.which("pacman")) is None:
+		msg.error_and_exit(f"Could not find pacman!")
+
+	_pacman_prefix = os.path.normpath(os.path.join(os.path.dirname(which_pacman), "..", ".."))
+	return _pacman_prefix
+
+
+@dataclass
+class PackageDeps:
+	depends: set[str]
+	optdepends: set[str]
+	makedepends: set[str]
+	checkdepends: set[str]
+
+# TODO: support non-default DBPath (ie. not /var/lib/pacman)
+DB_PATH = f"/var/lib/pacman"
+
+def get_alpm_handle() -> Any:
+	PREFIX = get_pacman_prefix()
+
+	if not os.path.exists(f"{PREFIX}/{DB_PATH}"):
+		msg.error_and_exit(f"Could not find Pacman database path")
+
+	return pyalpm.Handle("/", f"{PREFIX}/{DB_PATH}")
+
+
+def get_package_dependencies(handle: Any, package_name: str) -> Optional[PackageDeps]:
+	if (pkg := handle.get_localdb().get_pkg(package_name)) is not None:
+		# there is no type information in pyalpm...
+		return PackageDeps(
+			depends=set(cast(list[str], pkg.depends)),
+			optdepends=set(cast(list[str], pkg.optdepends)),
+			makedepends=set(cast(list[str], pkg.makedepends)),
+			checkdepends=set(cast(list[str], pkg.checkdepends)))
+
+	return None
+
+def resolve_transitive_deps(handle: Any, packages: str | Iterable[str], depkind: str) -> set[str]:
+	visited: set[str] = set()
+	stack: list[str] = []
+
+	if isinstance(packages, str):
+		stack.append(packages)
+	else:
+		stack.extend(packages)
+
+	while len(stack) > 0:
+		pkg = stack.pop()
+		if pkg in visited:
+			continue
+
+		if (d := get_package_dependencies(handle, pkg)) is not None:
+			stack.extend(getattr(d, depkind))
+			visited.add(pkg)
+
+	return visited

@@ -1,0 +1,15 @@
+[style]
+based_on_style = pep8
+indent_width = 4
+column_limit = 120
+dedent_closing_brackets = True
+spaces_before_comment = "16,20,24,28,32,36,40,44,48,52,56,60,64,68,72,76,80,84,88,92,96,100,104,108,112,116,120"
+spaces_around_dict_delimiters = True
+split_before_dot = True
+coalesce_brackets = True
+split_all_top_level_comma_separated_values = True
+split_before_arithmetic_operator = True
+split_before_logical_operator = True
+split_complex_comprehension = True
+SPLIT_ARGUMENTS_WHEN_COMMA_TERMINATED = True
+use_tabs = True
