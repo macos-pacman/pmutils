@@ -11,6 +11,9 @@ readme = "README.md"
 dependencies = ["requests", "pyzstd", "click", "aiohttp", "pyalpm", "tqdm"]
 requires-python = ">=3.10"
 
+[tool.setuptools.packages.find]
+exclude = ["vmhelper"]
+
 [project.scripts]
 pm = "pmutils.pm:main"
 
