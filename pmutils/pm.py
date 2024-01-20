@@ -357,19 +357,18 @@ def cmd_build(
 	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
 		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
 
-	if directory is not None:
-		with contextlib.chdir(directory) as _:
-			build.makepkg(
-			    registry,
-			    verify_pgp=verify_pgp,
-			    check=check,
-			    keep=keep,
-			    database=(repo if add else None),
-			    upload=upload,
-			    install=install,
-			    allow_downgrade=allow_downgrade,
-			    update_buildnum=buildnum
-			)
+	with contextlib.chdir(directory or ".") as _:
+		build.makepkg(
+		    registry,
+		    verify_pgp=verify_pgp,
+		    check=check,
+		    keep=keep,
+		    database=(repo if add else None),
+		    upload=upload,
+		    install=install,
+		    allow_downgrade=allow_downgrade,
+		    update_buildnum=buildnum
+		)
 
 	msg.log("Done")
 
