@@ -21,8 +21,10 @@ static void print_usage(char* argv0)
 {
 	zpr::println("Usage: {} <COMMAND> [args...]", argv0);
 	zpr::println("Supported commands:");
-	zpr::println("  create <PATH> <OS BUILD> <CPU> <RAM> <DISK>");
-	zpr::println("  run    <PATH>");
+	zpr::println("  create  <PATH> <IPSW_PATH> <CPU> <RAM> <DISK>");
+	zpr::println("  setup   <PATH> <USERNAME> <PASSWORD>");
+	zpr::println("  rungui  <PATH>");
+	zpr::println("  run     <PATH>");
 }
 
 int main(int argc, char** argv)
@@ -71,6 +73,18 @@ int main(int argc, char** argv)
 		auto ipsw_path = std::string(argv[1]);
 
 		app = [app initFromBundle:ns_url(bundle_path) withRestoreImage:ns_url(ipsw_path)];
+	}
+	else if(command == "setup")
+	{
+		if(argc != 3)
+			error_and_exit("Expected arguments for setup: <PATH> <USERNAME> <PASSWORD>");
+
+		auto bundle_path = std::string(argv[0]);
+		app = [app initForRunningFromBundle:ns_url(bundle_path) withGUI:true];
+
+		app->automaticSetup = true;
+		app->setupUsername = ns_string(argv[1]);
+		app->setupPassword = ns_string(argv[2]);
 	}
 	else if(command == "run" || command == "rungui")
 	{

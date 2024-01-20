@@ -123,10 +123,6 @@ static std::tuple<VZVirtualMachine*, VZMacHardwareModel*, VZMacMachineIdentifier
 
 	zpr::println("[log] Created {} byte disk image", disks);
 
-	auto attachment = [[VZDiskImageStorageDeviceAttachment alloc] initWithURL:disk_image_url readOnly:NO error:&error];
-	if(error != nil)
-		error_and_exit("Failed to create StorageDeviceAttachment for disk image: {}", error.description.UTF8String);
-
 	// load the restore image
 	auto sem = dispatch_semaphore_create(0);
 	__block VZMacOSRestoreImage* restore_image = nil;
@@ -148,6 +144,7 @@ static std::tuple<VZVirtualMachine*, VZMacHardwareModel*, VZMacMachineIdentifier
 	auto image_req = restore_image.mostFeaturefulSupportedConfiguration;
 	// auto vm_config = [[VZVirtualMachineConfiguration alloc] init];
 
+	// just make the nvram
 	auto nvram = [[VZMacAuxiliaryStorage alloc] //
 	    initCreatingStorageAtURL:nvram_image_url
 	               hardwareModel:image_req.hardwareModel
@@ -156,6 +153,8 @@ static std::tuple<VZVirtualMachine*, VZMacHardwareModel*, VZMacMachineIdentifier
 
 	if(error != nil)
 		error_and_exit("Failed to create AuxiliaryStorage: {}", error.description.UTF8String);
+
+	(void) nvram;
 
 	auto mid = [[VZMacMachineIdentifier alloc] init];
 	auto hwm = image_req.hardwareModel;
@@ -251,7 +250,8 @@ constexpr NSString* kMacAddress = @"mac_address";
 		}
 
 		[self->vmHandle startWithCompletionHandler:^(NSError* _Nullable errorOrNil) {
-			zpr::println("[log] VM started"); //
+			zpr::println("[log] VM started");
+			(void) errorOrNil;
 		}];
 	});
 }
@@ -274,7 +274,9 @@ constexpr NSString* kMacAddress = @"mac_address";
 		else
 		{
 			zpr::println("[log] Requested guest to stop");
-			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), self->queue, ^{
+
+			// macos doesn't respond to this, so don't bother waiting
+			dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 0 * NSEC_PER_SEC), self->queue, ^{
 				zpr::println("[log] Guest did not stop; terminating");
 
 				[self->vmHandle stopWithCompletionHandler:^(NSError* _Nullable errorOrNil) {
@@ -283,6 +285,7 @@ constexpr NSString* kMacAddress = @"mac_address";
 
 					zpr::println("[log] Guest stopped.");
 					dispatch_semaphore_signal(self->stopSemaphore);
+					(void) errorOrNil;
 				}];
 			});
 		}

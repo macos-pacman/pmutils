@@ -21,6 +21,11 @@ enum class RunMode
 };
 
 @interface App : NSObject<NSApplicationDelegate, NSWindowDelegate, VZVirtualMachineDelegate> {
+@public
+	bool automaticSetup;
+	NSString* setupUsername;
+	NSString* setupPassword;
+
 @private
 	CreationSettings creationSettings;
 	VirtualMachine* vm;
