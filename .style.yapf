@@ -13,3 +13,4 @@ split_before_logical_operator = True
 split_complex_comprehension = True
 SPLIT_ARGUMENTS_WHEN_COMMA_TERMINATED = True
 use_tabs = True
+BLANK_LINE_BEFORE_NESTED_CLASS_OR_DEF = False

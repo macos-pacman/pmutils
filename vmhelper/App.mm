@@ -89,6 +89,9 @@ static CGKeyCode get_keycode_for_char(const char c)
 		}
 	}
 
+	if('A' <= c && c <= 'Z')
+		return mapping[c + ('a' - 'A')];
+
 	return mapping[c];
 }
 
@@ -273,6 +276,7 @@ static CGKeyCode get_keycode_for_char(const char c)
 - (void)sendKeyCode:(unsigned)keyCode
       withModifiers:(NSEventModifierFlags)modifiers
               after:(std::chrono::duration<double>)delta
+       thenSleepFor:(std::chrono::duration<double>)slp
 {
 	if(delta != delta.zero())
 		std::this_thread::sleep_for(delta);
@@ -301,6 +305,9 @@ static CGKeyCode get_keycode_for_char(const char c)
 	if(modifiers & NSEventModifierFlagControl)
 		add_key(kVK_Control);
 
+	if(modifiers & NSEventModifierFlagShift)
+		add_key(kVK_Shift);
+
 	add_key(keyCode);
 
 	dispatch_async(dispatch_get_main_queue(), ^{
@@ -310,6 +317,31 @@ static CGKeyCode get_keycode_for_char(const char c)
 		for(auto e : up_events)
 			[self->window postEvent:e atStart:NO];
 	});
+
+	if(slp != slp.zero())
+		std::this_thread::sleep_for(slp);
+}
+
+- (void)sendKeyCode:(unsigned)keyCode
+      withModifiers:(NSEventModifierFlags)modifiers
+              after:(std::chrono::duration<double>)delta
+{
+	using namespace std::chrono_literals;
+	[self sendKeyCode:keyCode withModifiers:modifiers after:delta thenSleepFor:0s];
+}
+
+- (void)
+     sendKeyCode:(unsigned)keyCode
+           after:(std::chrono::duration<double>)delta
+    thenSleepFor:(std::chrono::duration<double>)slp
+{
+	[self sendKeyCode:keyCode withModifiers:0 after:delta thenSleepFor:slp];
+}
+
+- (void)sendKeyCode:(unsigned)keyCode thenSleepFor:(std::chrono::duration<double>)slp
+{
+	using namespace std::chrono_literals;
+	[self sendKeyCode:keyCode withModifiers:0 after:0s thenSleepFor:slp];
 }
 
 - (void)sendKeyCode:(unsigned)keyCode after:(std::chrono::duration<double>)delta
@@ -322,19 +354,19 @@ static CGKeyCode get_keycode_for_char(const char c)
 	[self sendKeyCode:keyCode after: {}];
 }
 
+
+
 - (void)sendKeyPress:(char)key after:(std::chrono::duration<double>)delta
 {
 	if(delta != delta.zero())
 		std::this_thread::sleep_for(delta);
 
-	NSEvent* down = nil;
-	NSEvent* up = nil;
-	std::tie(down, up) = [self makeEventPairWithKeyCode:get_keycode_for_char(key)];
+	// for caps, press shift.
+	NSEventModifierFlags mods = 0;
+	if('A' <= key && key <= 'Z')
+		mods = NSEventModifierFlagShift;
 
-	dispatch_async(dispatch_get_main_queue(), ^{
-		[self->window postEvent:down atStart:NO];
-		[self->window postEvent:up atStart:NO];
-	});
+	[self sendKeyCode:get_keycode_for_char(key) withModifiers:mods after:delta];
 }
 
 - (void)sendString:(NSString*)str
@@ -343,7 +375,7 @@ static CGKeyCode get_keycode_for_char(const char c)
 
 	auto chrs = std::string(str.UTF8String);
 	for(auto c : chrs)
-		[self sendKeyPress:c after:0.1s];
+		[self sendKeyPress:c after:70ms];
 }
 
 - (void)clickWindowAt:(NSPoint)point
@@ -417,14 +449,18 @@ static CGKeyCode get_keycode_for_char(const char c)
 
 	auto send_tab_sequence_then_space = [&](int num) {
 		for(int i = 0; i < num; i++)
-			[self sendKeyCode:kVK_Tab after:0.4s];
+			[self sendKeyCode:kVK_Tab after:0.35s];
 
-		[self sendKeyCode:kVK_Space after:0.4s];
-		std::this_thread::sleep_for(1s);
+		[self sendKeyCode:kVK_Space after:0.35s thenSleepFor:1s];
 	};
 
 	auto click_continue = [&]() { //
 		[self clickWindowAt:NSPoint { .x = vmView.bounds.size.width - 150, .y = 65 }];
+		std::this_thread::sleep_for(0.5s);
+	};
+
+	auto click_left_button = [&]() { //
+		[self clickWindowAt:NSPoint { .x = 150, .y = 65 }];
 		std::this_thread::sleep_for(0.5s);
 	};
 
@@ -448,9 +484,9 @@ static CGKeyCode get_keycode_for_char(const char c)
 	zpr::println("[log] Enabling: full keyboard access, reduce transparency");
 	[self sendKeyCode:kVK_F5
 	    withModifiers:(NSEventModifierFlagCommand | NSEventModifierFlagOption | NSEventModifierFlagFunction)
-	            after:0s];
+	            after:0s
+	     thenSleepFor:2s];
 
-	std::this_thread::sleep_for(2s);
 	send_tab_sequence_then_space(6);
 	send_tab_sequence_then_space(4);
 	send_tab_sequence_then_space(2);
@@ -482,14 +518,20 @@ static CGKeyCode get_keycode_for_char(const char c)
 	zpr::println("");
 	zpr::println("===== SCREEN: Migration Assistant =====");
 	zpr::println("[log] Not Now");
+	// click_left_button();
 	send_tab_sequence_then_space(2);
 
 	zpr::println("");
 	zpr::println("===== SCREEN: Sign In with Your Apple ID =====");
 	zpr::println("[log] Set Up Later");
+	// click_left_button();
 	send_tab_sequence_then_space(5);
+
 	zpr::println("[log] Skip");
+	// [self clickWindowAt:NSPoint { .x = 350, .y = vmView.bounds.size.height - 250 }];
 	send_tab_sequence_then_space(1);
+	std::this_thread::sleep_for(0.5s);
+
 
 	zpr::println("");
 	zpr::println("===== SCREEN: Terms and Conditions =====");
@@ -499,6 +541,7 @@ static CGKeyCode get_keycode_for_char(const char c)
 
 	std::this_thread::sleep_for(1s);
 	zpr::println("[log] Agree");
+	// [self clickWindowAt:NSPoint { .x = 350, .y = vmView.bounds.size.height - 240 }];
 	send_tab_sequence_then_space(1);
 
 	zpr::println("");
@@ -528,8 +571,10 @@ static CGKeyCode get_keycode_for_char(const char c)
 	zpr::println("[log] Continue");
 	click_continue();
 
+	std::this_thread::sleep_for(1s);
 	zpr::println("[log] Don't Use");
-	send_tab_sequence_then_space(1);
+	[self clickWindowAt:NSPoint { .x = 320, .y = 160 }];
+	// send_tab_sequence_then_space(1);
 
 	zpr::println("");
 	zpr::println("===== SCREEN: Select Your Time Zone =====");
@@ -569,6 +614,33 @@ static CGKeyCode get_keycode_for_char(const char c)
 
 	zpr::println("");
 	zpr::println("===== SCREEN: The Desktop =====");
+	std::this_thread::sleep_for(3s);
+
+	// enable remote login
+	// zpr::println("[log] Open Spotlight");
+	// [self sendKeyCode:kVK_Space withModifiers:(NSEventModifierFlagCommand) after:0s thenSleepFor:0.5s];
+	// [self sendString:@"/System/Applications/Utilities/Terminal.app"];
+	// [self sendKeyCode:kVK_Return after:0.5s thenSleepFor:2s];
+
+	// spotlight likes to fuck with you sometimes. just use finder to launch terminal.
+	zpr::println("[log] Open Terminal");
+	[self sendKeyCode:get_keycode_for_char('u')
+	    withModifiers:(NSEventModifierFlagCommand | NSEventModifierFlagShift)
+	            after:0.5s
+	     thenSleepFor:1s];
+
+	// move to terminal, then cmd-o it
+	[self sendKeyPress:'t' after:0.5s];
+	[self sendKeyCode:get_keycode_for_char('o') withModifiers:(NSEventModifierFlagCommand) after:0.5s thenSleepFor:2s];
+
+	zpr::println("[log] Enable Remote Access");
+	[self sendString:@"sudo launchctl load -w /System/Library/LaunchDaemons/ssh.plist"];
+	[self sendKeyCode:kVK_Return after:0.5s thenSleepFor:1s];
+
+	zpr::println("[log] Typing password...");
+	[self sendString:self->setupPassword];
+	[self sendKeyCode:kVK_Return after:0.5s thenSleepFor:1s];
+
 	zpr::println("[log] Done! Shutting down...");
 
 	std::this_thread::sleep_for(2s);

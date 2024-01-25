@@ -325,7 +325,7 @@ constexpr NSString* kMacAddress = @"mac_address";
 {
 	if([keyPath isEqualToString:NSStringFromSelector(@selector(fractionCompleted))] && object != nil)
 	{
-		zpr::print("\r                 \rProgress: {.2f}%", 100 * ((NSProgress*) object).fractionCompleted);
+		zpr::print("\r                    \r[log] Progress: {.2f}%", 100 * ((NSProgress*) object).fractionCompleted);
 		fflush(stdout);
 	}
 	else

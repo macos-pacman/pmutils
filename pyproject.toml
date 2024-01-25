@@ -8,7 +8,7 @@ version = "0.5.1"
 authors = [{name="zhiayang", email="zhiayang@nowhere.com" }]
 description = "Package management utilities"
 readme = "README.md"
-dependencies = ["requests", "pyzstd", "click", "aiohttp", "pyalpm", "tqdm"]
+dependencies = ["requests", "pyzstd", "click", "aiohttp", "pyalpm", "tqdm", "stream-zip", "stream-unzip"]
 requires-python = ">=3.10"
 
 [tool.setuptools.packages.find]

@@ -324,7 +324,6 @@ def cmd_rebase(
 @click.option("--verify-pgp/--no-verify-pgp", help="Verify PGP signatures", default=False)
 @click.option("--check/--no-check", help="Run the check() function in the PKGBUILD", default=True)
 @click.option("--buildnum/--no-buildnum", help="Automatically increment the build number in the PKGBUILD", default=True)
-@click.option("--keep/--delete", help="Keep the built package after adding it (requires `--add`)", default=False)
 @click.option("--upload/--no-upload", is_flag=True, default=True, help="Upload built packages to remote repositories")
 @click.option(
     "--allow-downgrade",
@@ -335,6 +334,8 @@ def cmd_rebase(
 @click.option("--repo", metavar="REPO", help="Use the given repository when adding packages", required=False)
 @click.option("-a", "--add", is_flag=True, default=False, help="Add built package to the database")
 @click.option("-i", "--install", is_flag=True, help="Install the package after building")
+@click.option("-k", "--keep", is_flag=True, help="Keep the package after building it")
+@click.option("-d", "--delete", is_flag=True, help="Delete the package after building it")
 @click.argument("directory", required=False, nargs=1, type=click.Path(exists=True, dir_okay=True))
 def cmd_build(
     ctx: Any,
@@ -342,6 +343,7 @@ def cmd_build(
     directory: Optional[str],
     check: bool,
     keep: bool,
+    delete: bool,
     upload: bool,
     install: bool,
     repo: Optional[str],
@@ -349,7 +351,8 @@ def cmd_build(
     allow_downgrade: bool,
     buildnum: bool
 ):
-	"""Build a package"""
+	if keep and delete:
+		msg.error_and_exit(f"`--keep` and `--delete` cannot be used together")
 
 	Config.load(ctx.meta["config_file"])
 	registry = config().registry
@@ -357,12 +360,21 @@ def cmd_build(
 	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
 		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
 
+	# if keep and delete were both false, then it's "auto":
+	# keep if we are not adding, delete if we are.
+	if (not keep) and (not delete):
+		_keep = add
+	elif delete:
+		_keep = False
+	else:
+		_keep = keep
+
 	with contextlib.chdir(directory or ".") as _:
 		build.makepkg(
 		    registry,
 		    verify_pgp=verify_pgp,
 		    check=check,
-		    keep=keep,
+		    keep=_keep,
 		    database=(repo if add else None),
 		    upload=upload,
 		    install=install,
@@ -373,27 +385,41 @@ def cmd_build(
 	msg.log("Done")
 
 
-@cli.command(name="sandbox", help="Start sandbox virtual machine")
+@cli.command(name="sbman", help="Manage the sandbox virtual machine")
 @click.option("--gui", is_flag=True, default=False, help="Run with the GUI open")
+@click.option("--upload", is_flag=True, default=False, help="Upload the current VM bundle to the registry")
+@click.option("--download", is_flag=True, default=False, help="Download the VM bundle from the registry")
 @click.option("--restore", is_flag=True, default=False, help="Restore the VM")
 @click.option("--bootstrap", is_flag=True, default=False, help="Perform Pacman bootstrapping")
 @click.option("--ipsw", required=False, metavar="IPSW", help="The path to a local IPSW file to use for restoring")
 @click.pass_context
-def cmd_sandbox(ctx: Any, gui: bool, restore: bool, bootstrap: bool, ipsw: Optional[str]):
+def cmd_sandbox(ctx: Any, gui: bool, restore: bool, bootstrap: bool, upload: bool, download: bool, ipsw: Optional[str]):
+	if upload and download:
+		msg.error_and_exit(f"`--upload` and `--download` cannot be used together")
+
+	elif (upload or download) and (gui or restore or bootstrap or ipsw):
+		msg.error_and_exit(f"`--upload` and `--download` must be used alone (without other options)")
+
 	Config.load(ctx.meta["config_file"])
+	if upload:
+		pass
 
-	if (vz := vm.load_or_create_sandbox(gui=gui, restore=restore, bootstrap=bootstrap, ipsw_path=ipsw)) is None:
-		return
+	elif download:
+		pass
 
-	# wait till we get sigwait, then exit.
-	if not vz.stopped:
-		msg.log2("Use Ctrl-C (or send SIGINT) to stop")
-		signal.signal(signal.SIGINT, lambda _1, _2: vz.stop(wait=False))
+	else:
+		if (vz := vm.run.load_or_create_sandbox(gui=gui, restore=restore, bootstrap=bootstrap, ipsw_path=ipsw)) is None:
+			return
 
-		while vz.get_ip() is None:
-			time.sleep(0.5)
+		# wait till we get sigwait, then exit.
+		if not vz.stopped:
+			msg.log2("Use Ctrl-C (or send SIGINT) to stop")
+			signal.signal(signal.SIGINT, lambda _1, _2: vz.stop(wait=False))
 
-	vz.wait()
+			while vz.get_ip() is None:
+				time.sleep(0.5)
+
+		vz.wait()
 
 
 def main() -> int:

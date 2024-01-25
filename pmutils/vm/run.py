@@ -8,6 +8,7 @@ import time
 import json
 import shutil
 import signal
+import atexit
 import hashlib
 import tempfile
 import functools
@@ -22,6 +23,7 @@ from pmutils.config import config
 _vmhelper_path: str = ""
 
 PREFIX = "/opt/pacman"
+DEFAULT_PASSWORD = "password"
 
 
 def get_vmhelper_path() -> Optional[str]:
@@ -83,6 +85,13 @@ def stream_process_output(process: subprocess.Popen[bytes]) -> int:
 SSH_OPTIONS = ["-o", "LogLevel=QUIET", "-o", "UserKnownHostsFile=/dev/null", "-o", "StrictHostKeyChecking=no"]
 
 
+def get_vmhelper_path_or_die():
+	if (vmhp := get_vmhelper_path()) is not None:
+		return vmhp
+	else:
+		msg.error_and_exit(f"Could not find `pmutils-vmhelper` in $PATH")
+
+
 class VMSandBox:
 	bundle: str
 	mac_addr: str
@@ -91,6 +100,8 @@ class VMSandBox:
 	user: str
 	stopped: bool = False
 
+	vmhelper_path: ClassVar[str] = get_vmhelper_path_or_die()
+
 	def __init__(self, vmhelper: subprocess.Popen[bytes], bundle_path: str, mac_addr: str):
 		# most of the things are handled by the vmhelper, nothing much for us to do
 		self.bundle = bundle_path
@@ -98,10 +109,24 @@ class VMSandBox:
 		self.vmhelper = vmhelper
 		self.ip = None
 		self.user = config().sandbox.username
+		atexit.register(lambda: self.__del__())
+
+	def __del__(self):
+		self.vmhelper.send_signal(signal.SIGINT)
 
 	def stop(self, wait: bool = True):
 		msg.log("Stopping VM...")
 		if self.ip is not None:
+			# every time we stop the vm, update the version number.
+			os_version = self.send_command(f"sw_vers -productVersion", capture=True)
+
+			with open(os.path.join(self.bundle, "config.json"), "r") as c:
+				cfg = json.load(c)
+
+			cfg["os_ver"] = os_version
+			with open(os.path.join(self.bundle, "config.json"), "w") as c:
+				json.dump(cfg, c)
+
 			self.send_command(f"sudo -n shutdown -h now")
 			time.sleep(2)
 
@@ -116,21 +141,22 @@ class VMSandBox:
 
 	@classmethod
 	def start(cls, bundle_path: str, gui: bool) -> Optional[Self]:
-		if (vmhp := get_vmhelper_path()) is None:
-			msg.error(f"Could not find `pmutils-vmhelper` in $PATH")
-			return None
-
 		if not os.path.exists(bundle_path) or not os.path.isdir(bundle_path):
 			msg.error(f"Sandbox bundle path {bundle_path} does not exist")
 			return None
 
 		# load the json and extract the mac address
+		cfg_path = os.path.join(bundle_path, "config.json")
+		if not os.path.exists(cfg_path):
+			msg.error(f"Config JSON path '{cfg_path}' does not exist in the bundle!")
+			return None
+
 		cfg = json.loads(open(os.path.join(bundle_path, "config.json"), "r").read())
 		mac_address = _clean_mac_addr(cfg["mac_address"])
 
 		vmhelper = subprocess.Popen(
 		    [
-		        vmhp,
+		        cls.vmhelper_path,
 		        ("rungui" if gui else "run"),
 		        bundle_path,
 		    ],
@@ -143,16 +169,12 @@ class VMSandBox:
 
 	@classmethod
 	def restore(cls, bundle_path: str, ipsw_path: str) -> Optional[Self]:
-		if (vmhp := get_vmhelper_path()) is None:
-			msg.error(f"Could not find `pmutils-vmhelper` in $PATH")
-			return None
-
 		msg.log(f"Starting vmhelper...")
 		msg.log(f"Restoring VM with IPSW")
 
 		sb_config = config().sandbox
-		subprocess.Popen([
-		    vmhp,
+		rc = subprocess.Popen([
+		    cls.vmhelper_path,
 		    "create",
 		    bundle_path,
 		    ipsw_path,
@@ -161,12 +183,18 @@ class VMSandBox:
 		    str(60 * 1024 * 1024 * 1024)     # 60gb disk
 		]).wait()
 
+		if rc != 0:
+			msg.error(f"VM failed to restore!")
+			return None
+
 		msg.log(f"INSTRUCTIONS FOR USE:")
-		msg.log2(f"Proceed through macOS setup")
-		msg.log2(f"Create a user account, and set a password")
+		msg.log2(f"macOS setup should be automated, but it's not foolproof")
+		msg.log2(f"If it does not succeed, please set it up manually:")
 		msg.log3(f"The username should be '{sb_config.username}'")
+		msg.log3(f"          and password '{DEFAULT_PASSWORD}'")
+		msg.log3(f"Enable 'Remote Login' in System Setings")
+
 		msg.log2(f"If desired, update macOS (within the same major version) after installation finishes")
-		msg.log2(f"Enable 'Remote Login' in System Setings")
 
 		msg.log(f"This might take a while, and requires ~60GiB of disk space.")
 		msg.log(f"Proceed? [Y/n]")
@@ -174,19 +202,17 @@ class VMSandBox:
 			msg.log("Aborting!")
 			return None
 
-		if (vz := cls.start(bundle_path, gui=True)) is None:
+		if not cls.setup(bundle_path, sb_config.username, "password"):
 			return None
 
-		# wait till the user says we can communicate
+		# now run it again
+		vz = cls.start(bundle_path, gui=True)
+		if not vz:
+			return None
+
+		# wait till we can find the guy
 		while True:
-			# no way you can blast through this in < 10 seconds
-			time.sleep(10)
-
-			msg.log(f"Once Setup is done and 'Remote Login' is enabled, type 'ok': ", end='')
-			if input().lower() != 'ok':
-				msg.warn2("Expected 'ok' -- retrying")
-				continue
-
+			time.sleep(1)
 			if vz.get_ip() is None:
 				msg.warn2(f"Could not get IP, please retry!")
 			else:
@@ -196,7 +222,22 @@ class VMSandBox:
 		if not vz.bootstrap():
 			vz.stop()
 
-		return None
+		return vz
+
+	@classmethod
+	def setup(cls, bundle_path: str, username: str, password: str) -> bool:
+		rc = subprocess.Popen(
+		    [
+		        cls.vmhelper_path,
+		        "setup",
+		        bundle_path,
+		        username,
+		        password,
+		    ],
+		    stdin=subprocess.DEVNULL,
+		    start_new_session=True,
+		).wait()
+		return (rc == 0)
 
 	def bootstrap(self, ip_retries: int = 10) -> bool:
 		while (self.get_ip() is None):
@@ -228,14 +269,19 @@ class VMSandBox:
 		msg.log2(f"Will now attempt to SSH into the VM")
 		msg.log2(f"Please provide your password if prompted by SSH")
 
-		if subprocess.run(["ssh-copy-id", "-i", key_path, *SSH_OPTIONS, f"{self.user}@{self.ip}"]).returncode != 0:
+		if subprocess.run(["sshpass", "ssh-copy-id", "-i", key_path, *SSH_OPTIONS, f"{self.user}@{self.ip}"],
+		                  input=DEFAULT_PASSWORD,
+		                  text=True).returncode != 0:
 			msg.error2(f"Failed to copy SSH key to VM")
 			return False
 
 		# only need to edit sudoers if we can't already sudo without a password
 		if cmd("sudo -n true")[1] != 0:
 			msg.log(f"Editing /etc/sudoers; enter your password when prompted")
-			cmd(f"echo '{self.user} ALL=(ALL) NOPASSWD: ALL' | sudo tee -a /etc/sudoers")
+			cmd(
+			    f"sudo -S -- bash -c \"echo '{self.user} ALL=(ALL) NOPASSWD: ALL' | tee -a /etc/sudoers\"",
+			    with_input=DEFAULT_PASSWORD
+			)
 
 		msg.log(f"Setting hostname to 'pacman'")
 		cmd(f"sudo systemsetup -setcomputername 'pacman'")
@@ -317,11 +363,14 @@ class VMSandBox:
 		self.stop()
 		return True
 
-	def send_command(self,
-	                 cmd: str,
-	                 bootstrapping: bool = False,
-	                 capture: bool = False,
-	                 with_tty: bool = True) -> tuple[str, int]:
+	def send_command(
+	    self,
+	    cmd: str,
+	    bootstrapping: bool = False,
+	    capture: bool = False,
+	    with_tty: bool = True,
+	    with_input: Optional[str] = None
+	) -> tuple[str, int]:
 		key_path = os.path.join(self.bundle, "..", "id_ed25519")
 		p = subprocess.run(
 		    [
@@ -336,6 +385,7 @@ class VMSandBox:
 		    ],
 		    capture_output=capture,
 		    text=True,
+		    input=with_input,
 		)
 
 		if capture:

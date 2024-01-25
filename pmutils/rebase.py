@@ -10,6 +10,7 @@ from typing import *
 from pmutils import msg, remote, build, util
 from pmutils.registry import Registry, Repository
 
+
 def _patch_file(name: str, upstream_content: str, diff_content: str) -> bool:
 	new_name = f"{name}.new"
 
@@ -18,8 +19,11 @@ def _patch_file(name: str, upstream_content: str, diff_content: str) -> bool:
 		dst.write(upstream_content)
 
 	# check whether the thing can apply first
-	rc = subprocess.run(["patch", "--check", "-Ns", "-Vnone", new_name], input=diff_content,
-		text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+	rc = subprocess.run(["patch", "--check", "-Ns", "-Vnone", new_name],
+	                    input=diff_content,
+	                    text=True,
+	                    stdout=subprocess.DEVNULL,
+	                    stderr=subprocess.DEVNULL).returncode
 
 	if rc != 0:
 		# for failed patches, write out the pmdiff.
@@ -35,16 +39,20 @@ def _patch_file(name: str, upstream_content: str, diff_content: str) -> bool:
 	return True
 
 
-def rebase_package(pkg_dir: str, force: bool, *,
-	registry: Optional[Registry] = None,
-	repository: Optional[Repository] = None,
-	build_pkg: bool,
-	install_pkg: bool,
-	check_pkg: bool,
-	upload: bool,
-	commit: bool,
-	allow_downgrade: bool,
-	update_buildnum: bool) -> bool:
+def rebase_package(
+    pkg_dir: str,
+    force: bool,
+    *,
+    registry: Optional[Registry] = None,
+    repository: Optional[Repository] = None,
+    build_pkg: bool,
+    install_pkg: bool,
+    check_pkg: bool,
+    upload: bool,
+    commit: bool,
+    allow_downgrade: bool,
+    update_buildnum: bool
+) -> bool:
 
 	if not os.path.exists(pkg_dir) or not os.path.isdir(pkg_dir):
 		msg.warn(f"Skipping nonexistent folder '{pkg_dir}'")
@@ -54,7 +62,7 @@ def rebase_package(pkg_dir: str, force: bool, *,
 		return True
 
 	have_fails = False
-	pkgname = os.path.basename(pkg_dir)
+	pkgname = os.path.basename(os.path.realpath(pkg_dir))
 	msg.log(f"Updating {pkgname}")
 
 	with contextlib.chdir(pkg_dir) as _:
@@ -89,20 +97,19 @@ def rebase_package(pkg_dir: str, force: bool, *,
 		# get the srcinfo again, after patching
 		new_srcinfo = util.get_srcinfo("./PKGBUILD")
 
-
-
-
 	new_ver = new_srcinfo.version()
 	old_ver = local_srcinfo.version()
 	if new_ver < old_ver:
 		msg.warn2(f"Upstream version '{new_ver}' is " + \
-			f"older than local '{old_ver}'{' (not installing)' if install_pkg else ''}")
+         f"older than local '{old_ver}'{' (not installing)' if install_pkg else ''}")
 
 		install_pkg = False
 	elif old_ver == new_ver:
 		msg.log2(f"Version: {msg.GREEN}{old_ver}{msg.ALL_OFF}")
 	else:
-		msg.log2(f"Version: {msg.GREY}{old_ver}{msg.ALL_OFF} {msg.BOLD}->{msg.ALL_OFF} {msg.GREEN}{new_ver}{msg.ALL_OFF}")
+		msg.log2(
+		    f"Version: {msg.GREY}{old_ver}{msg.ALL_OFF} {msg.BOLD}->{msg.ALL_OFF} {msg.GREEN}{new_ver}{msg.ALL_OFF}"
+		)
 
 	with contextlib.chdir(pkg_dir) as _:
 		if commit and (not have_fails):
@@ -123,9 +130,18 @@ def rebase_package(pkg_dir: str, force: bool, *,
 			assert registry is not None
 			assert repository is not None
 
-			build.makepkg(registry=registry, verify_pgp=False, check=check_pkg, keep=(not upload),
-				database=repository.name, upload=upload, install=install_pkg,
-				confirm=True, allow_downgrade=allow_downgrade, update_buildnum=update_buildnum)
+			build.makepkg(
+			    registry=registry,
+			    verify_pgp=False,
+			    check=check_pkg,
+			    keep=(not upload),
+			    database=repository.name,
+			    upload=upload,
+			    install=install_pkg,
+			    confirm=True,
+			    allow_downgrade=allow_downgrade,
+			    update_buildnum=update_buildnum
+			)
 
 	if have_fails:
 		msg.warn2(f"Some patches failed to apply; use `.pmdiff` files to update manually")
