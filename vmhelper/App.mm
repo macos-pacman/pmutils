@@ -155,7 +155,9 @@ static CGKeyCode get_keycode_for_char(const char c)
 
 - (void)windowWillClose:(NSNotification*)notification
 {
-	[self->vm stop];
+	if(self->vm.vm.state == VZVirtualMachineStateRunning)
+		[self->vm stop];
+
 	dispatch_async(dispatch_get_main_queue(), ^{
 		[self->vm waitForStop]; //
 		[NSApp terminate:self];
@@ -454,9 +456,10 @@ static CGKeyCode get_keycode_for_char(const char c)
 		[self sendKeyCode:kVK_Space after:0.35s thenSleepFor:1s];
 	};
 
-	auto click_continue = [&]() { //
+	auto click_continue = [&](bool sleep = true) { //
 		[self clickWindowAt:NSPoint { .x = vmView.bounds.size.width - 150, .y = 65 }];
-		std::this_thread::sleep_for(0.5s);
+		if(sleep)
+			std::this_thread::sleep_for(0.5s);
 	};
 
 	auto click_left_button = [&]() { //
@@ -505,9 +508,9 @@ static CGKeyCode get_keycode_for_char(const char c)
 	zpr::println("===== SCREEN: Accessibility =====");
 	std::this_thread::sleep_for(1s);
 	zpr::println("[log] Not Now");
-	click_continue();
+	click_continue(/* sleep: */ false);
 
-	wait_for_screen_change(self, cgc, 0.1);
+	wait_for_screen_change(self, cgc, 0.07);
 
 	zpr::println("");
 	zpr::println("===== SCREEN: Data & Privacy =====");
@@ -518,18 +521,20 @@ static CGKeyCode get_keycode_for_char(const char c)
 	zpr::println("");
 	zpr::println("===== SCREEN: Migration Assistant =====");
 	zpr::println("[log] Not Now");
-	// click_left_button();
-	send_tab_sequence_then_space(2);
+	click_left_button();
+	// send_tab_sequence_then_space(2);
 
 	zpr::println("");
 	zpr::println("===== SCREEN: Sign In with Your Apple ID =====");
+	std::this_thread::sleep_for(2s);
+
 	zpr::println("[log] Set Up Later");
-	// click_left_button();
-	send_tab_sequence_then_space(5);
+	click_left_button();
+	// send_tab_sequence_then_space(5);
 
 	zpr::println("[log] Skip");
-	// [self clickWindowAt:NSPoint { .x = 350, .y = vmView.bounds.size.height - 250 }];
-	send_tab_sequence_then_space(1);
+	[self clickWindowAt:NSPoint { .x = 350, .y = vmView.bounds.size.height - 250 }];
+	// send_tab_sequence_then_space(1);
 	std::this_thread::sleep_for(0.5s);
 
 

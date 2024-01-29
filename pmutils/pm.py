@@ -402,7 +402,7 @@ def cmd_sandbox(ctx: Any, gui: bool, restore: bool, bootstrap: bool, upload: boo
 
 	Config.load(ctx.meta["config_file"])
 	if upload:
-		pass
+		vm.remote.upload_bundle()
 
 	elif download:
 		pass
@@ -426,8 +426,7 @@ def cmd_sandbox(ctx: Any, gui: bool, restore: bool, bootstrap: bool, upload: boo
 @click.pass_context
 def cmd_internal_testing(ctx: Any):
 	Config.load(ctx.meta["config_file"])
-
-	vm.remote.upload_bundle()
+	print("nothing to see here")
 
 
 def main() -> int:

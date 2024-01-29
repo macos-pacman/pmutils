@@ -5,10 +5,10 @@
 import io
 import os
 import time
-import pyzstd
 import tarfile
 import hashlib
 import subprocess
+import zstandard as zstd
 
 from os import path
 from typing import *
@@ -227,7 +227,7 @@ class Database:
 		db_tar: tarfile.TarFile
 		if path.splitext(self._db_path)[1] == ".zst":
 			with open(self._db_path, "rb") as f:
-				db_tar = tarfile.open(fileobj=io.BytesIO(pyzstd.decompress(f.read())))
+				db_tar = tarfile.open(fileobj=io.BytesIO(zstd.decompress(f.read())))
 		else:
 			db_tar = tarfile.open(self._db_path)
 
