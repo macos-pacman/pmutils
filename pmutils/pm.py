@@ -11,7 +11,7 @@ import importlib.metadata as im
 
 from typing import *
 from pmutils.config import Config, config
-from pmutils import msg, build, check, remote, rebase, vm
+from pmutils import msg, build, check, upstream, rebase, vm
 from pmutils.registry import Registry, Repository
 
 DEFAULT_CONFIG = "config.toml"
@@ -166,7 +166,7 @@ def cmd_fetch(ctx: Any, package: list[str], repo: Optional[str], force: bool):
 		msg.error_and_exit(f"`root-dir` not configured for repository, cannot fetch")
 
 	for pkg in package:
-		remote.fetch_upstream_package(root_dir=r.root_dir, pkg_name=pkg, force=force)
+		upstream.fetch_upstream_package(root_dir=r.root_dir, pkg_name=pkg, force=force)
 
 	msg.log("Done")
 
@@ -192,7 +192,7 @@ def cmd_diff(package: list[click.Path], force: bool, fetch: bool, update: bool, 
 			msg.log2(f"Skipping folder '{file}' with no PKGBUILD")
 			continue
 
-		remote.diff_package(file, force=force, keep_old=keep, fetch_latest=fetch, update_local=update, commit=commit)
+		upstream.diff_package(file, force=force, keep_old=keep, fetch_latest=fetch, update_local=update, commit=commit)
 
 	msg.log("Done")
 
@@ -420,6 +420,14 @@ def cmd_sandbox(ctx: Any, gui: bool, restore: bool, bootstrap: bool, upload: boo
 				time.sleep(0.5)
 
 		vz.wait()
+
+
+@cli.command(name="internal-testing", hidden=True)
+@click.pass_context
+def cmd_internal_testing(ctx: Any):
+	Config.load(ctx.meta["config_file"])
+
+	vm.remote.upload_bundle()
 
 
 def main() -> int:

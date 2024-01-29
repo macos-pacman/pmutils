@@ -56,6 +56,7 @@ DEFAULT_USERNAME = "pacman"
 class SandboxConfig:
 	path: Optional[str]
 	macos_build: Optional[str]
+	remote: Optional[str]
 	username: str
 	cpus: int
 	ram: int
@@ -68,6 +69,7 @@ class SandboxConfig:
 		return SandboxConfig(
 		    path=obj.get("path"),
 		    macos_build=obj.get("macos-build"),
+		    remote=obj.get("remote"),
 		    username=obj.get("username", DEFAULT_USERNAME),
 		    cpus=obj.get("cpus", DEFAULT_CPUS),
 		    ram=obj.get("ram", DEFAULT_RAM)

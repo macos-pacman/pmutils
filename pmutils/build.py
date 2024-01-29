@@ -17,7 +17,7 @@ def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
 	if sys.base_prefix == sys.prefix:
 		return args.copy()
 
-	msg.log(f"Editing Python venv out of virtual environment")
+	msg.log(f"Editing Python venv out of environment")
 	env = args.copy()
 
 	venv = env["VIRTUAL_ENV"]
@@ -66,7 +66,7 @@ def makepkg(
 		found_buildnum = False
 
 		with open("PKGBUILD", "r") as pkgbuild:
-			for line in pkgbuild.read().splitlines():
+			for line_idx, line in enumerate(pkgbuild.read().splitlines()):
 				if (m := re.fullmatch(r"pkgrel\+=\"(?:\.(\d+))?\"", line)) is not None:
 					if (buildnum := m.groups()[0]) is None:
 						# it was empty (pkgrel+=""), so make it .1
@@ -79,7 +79,7 @@ def makepkg(
 				else:
 					new_lines.append(line)
 					if line.startswith("pkgrel="):
-						pkgrel_line_idx = len(line)
+						pkgrel_line_idx = line_idx
 
 		if not found_buildnum:
 			assert pkgrel_line_idx is not None

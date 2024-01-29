@@ -3,57 +3,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import tarfile
-import subprocess
 import os.path as path
 
 from pmutils import msg, mimes
+from pmutils.version import Version
 
 from typing import *
 from dataclasses import dataclass
 
-@dataclass(eq=True, frozen=True)
-class Version:
-	epoch: int
-	pkgver: str
-	pkgrel: str
-
-	def __str__(self) -> str:
-		estr = f"{self.epoch}:" if self.epoch > 0 else ""
-		return f"{estr}{self.pkgver}-{self.pkgrel}"
-
-	def sanitise(self) -> str:
-		return str(self).replace(':', '-').replace('+', '_')
-
-	# call out to pacman because it's the final authority
-	def __lt__(self, other: "Version") -> bool:
-		return int(subprocess.check_output(["vercmp", str(self), str(other)])) < 0
-
-	def __gt__(self, other: "Version") -> bool:
-		return int(subprocess.check_output(["vercmp", str(self), str(other)])) > 0
-
-	def __le__(self, other: "Version") -> bool:
-		return self == other or self < other
-
-	def __ge__(self, other: "Version") -> bool:
-		return self == other or self > other
-
-	@staticmethod
-	def parse(s: str) -> "Version":
-		epoch: int = 0
-
-		if ':' in s:
-			_epoch, s = s.split(':')
-			epoch = int(_epoch)
-
-		pkgver, _pkgrel = s.rsplit('-', maxsplit=1)
-		return Version(epoch, pkgver, _pkgrel)
-
-
 # HARDCODED LIST OF THINGS
 REPLACEMENTS = {
-	"crypto++": "cryptopp",
-	"libsigc++": "libsigcpp",
-	"libsigc++-docs": "libsigcpp-docs",
+    "crypto++": "cryptopp",
+    "libsigc++": "libsigcpp",
+    "libsigc++-docs": "libsigcpp-docs",
 }
 
 
@@ -70,25 +32,28 @@ class Package:
 		return f"{self.name}-{self.version}{astr}"
 
 	def sanitised_name(self) -> str:
-		return REPLACEMENTS.get(self.name) or self.name
+		if (r := REPLACEMENTS.get(self.name)) is not None:
+			return r
+		elif "+" in self.name:
+			msg.error_and_exit(f"Package '{self.name}' contains invalid character '+'")
 
+		return self.name
 
 	def manifest(self) -> dict[str, Any]:
 		return {
-			"schemaVersion": 2,
-			"mediaType": mimes.MANIFEST,
-			"config": {
-				"mediaType": mimes.CONFIG,
-				"digest": f"sha256:{self.sha256}",
-				"size": self.size,
-			},
-			"layers": [{
-				"mediaType": mimes.BYTES,
-				"digest": f"sha256:{self.sha256}",
-				"size": self.size,
-			}]
+		    "schemaVersion": 2,
+		    "mediaType": mimes.MANIFEST,
+		    "config": {
+		        "mediaType": mimes.CONFIG,
+		        "digest": f"sha256:{self.sha256}",
+		        "size": self.size,
+		    },
+		    "layers": [{
+		        "mediaType": mimes.BYTES,
+		        "digest": f"sha256:{self.sha256}",
+		        "size": self.size,
+		    }]
 		}
-
 
 	@staticmethod
 	def parse(name: str, size: int, sha256: str, arch: Optional[str] = None) -> "Package":
@@ -111,7 +76,7 @@ class Package:
 		if arch is None:
 			msg.error_and_exit(f"failed to parse package {name} without arch")
 
-		if arch not in [ "any", "arm64", "x86_64" ]:
+		if arch not in ["any", "arm64", "x86_64"]:
 			msg.error_and_exit(f"Package '{name}' has invalid arch '{arch}'")
 
 		return Package(name, Version(epoch, pkgver, pkgrel), arch, sha256, size)
@@ -130,9 +95,9 @@ class Package:
 			return lines[lines.index(f"%{s}%".encode()) + 1].decode()
 
 		return Package(
-			name    = _key("NAME"),
-			version = Version.parse(_key("VERSION")),
-			arch    = _key("ARCH"),
-			sha256  = _key("SHA256SUM"),
-			size    = int(_key("CSIZE"))
+		    name=_key("NAME"),
+		    version=Version.parse(_key("VERSION")),
+		    arch=_key("ARCH"),
+		    sha256=_key("SHA256SUM"),
+		    size=int(_key("CSIZE"))
 		)

@@ -7,7 +7,7 @@ import subprocess
 import contextlib
 
 from typing import *
-from pmutils import msg, remote, build, util
+from pmutils import msg, upstream, build, util
 from pmutils.registry import Registry, Repository
 
 
@@ -66,12 +66,12 @@ def rebase_package(
 	msg.log(f"Updating {pkgname}")
 
 	with contextlib.chdir(pkg_dir) as _:
-		if (pmdiff := remote.PmDiffFile.load()) is None:
+		if (pmdiff := upstream.PmDiffFile.load()) is None:
 			msg.warn2(f"Changes file missing! Run `pm diff` first")
 			return False
 
 		# make the diffs (note: diff_package already checks for a dirty working dir)
-		if (gen := remote.diff_package_lazy(pkg_path=pkg_dir, force=force, fetch_latest=True)) is None:
+		if (gen := upstream.diff_package_lazy(pkg_path=pkg_dir, force=force, fetch_latest=True)) is None:
 			return False
 
 		local_srcinfo = util.get_srcinfo("./PKGBUILD")
@@ -101,7 +101,7 @@ def rebase_package(
 	old_ver = local_srcinfo.version()
 	if new_ver < old_ver:
 		msg.warn2(f"Upstream version '{new_ver}' is " + \
-         f"older than local '{old_ver}'{' (not installing)' if install_pkg else ''}")
+                     f"older than local '{old_ver}'{' (not installing)' if install_pkg else ''}")
 
 		install_pkg = False
 	elif old_ver == new_ver:

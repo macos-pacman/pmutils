@@ -20,12 +20,20 @@ from dataclasses import dataclass
 
 MANIFEST_OS = "darwin"
 
+
 def human_size(num: float, suffix: str = "B"):
 	for unit in ["", "k", "M", "G", "T"]:
 		if abs(num) < 1024.0:
 			return f"{num:3.1f} {unit}{suffix}"
 		num /= 1024.0
 	return f"{num:.1f} P{suffix}"
+
+
+@dataclass
+class AdHocRepo:
+	name: str
+	remote: str
+
 
 class Registry:
 	def __init__(self, url: str, token: str):
@@ -44,7 +52,7 @@ class Registry:
 
 	def add_repository(self, name: str, remote: str, db_file: str, release_name: str, root_dir: Optional[str] = None):
 		if name in self._repos:
-			msg.error_and_exit(f"duplicate repository '{name}'")
+			msg.error_and_exit(f"Duplicate repository '{name}'")
 
 		if not db_file.endswith(".db"):
 			msg.error_and_exit(f"db path should end in `.db`, and not have .tar.*")
@@ -54,16 +62,16 @@ class Registry:
 	def get_repository(self, name: str) -> Optional["Repository"]:
 		return self._repos.get(name)
 
-	def oauth_token(self, repo: "Repository") -> str:
+	def oauth_token(self, repo: "Repository | AdHocRepo") -> str:
 		if repo.name in self._oauths:
 			return self._oauths[repo.name]
 
 		r = req.get(f"{self._url}/token", {
-			"scope": f"repository:{repo.remote}:*",
+		    "scope": f"repository:{repo.remote}:*",
 		}, auth=(repo.remote, self._token))
 
 		if r.status_code != 200:
-			msg.error_and_exit(f"failed to authenticate!\n{r.text}")
+			msg.error_and_exit(f"Failed to authenticate!\n{r.text}")
 
 		msg.log2(f"Obtained OAuth token for {repo.remote}")
 		return r.json()["token"]
@@ -76,6 +84,7 @@ class Existence(Enum):
 	NONE = 1
 	EXISTS = 2
 	CONFLICTS = 3
+
 
 @dataclass(eq=True, frozen=True)
 class Repository:
@@ -99,23 +108,28 @@ class Repository:
 		msg.log(f"Uploading database")
 		self._upload_database(self.registry.user_token())
 
-
 	def _upload_asset(self, token: str, release_id: int, name: str, file: str):
-		req.post(f"https://uploads.github.com/repos/{self.remote}/releases/{release_id}/assets", params={
-			"name": name
-		}, headers={
-			"X-GitHub-Api-Version": "2022-11-28",
-			"Authorization": f"Bearer {token}",
-			"Content-Type": "application/octet-stream"
-		}, data=open(file, "rb"))
+		req.post(
+		    f"https://uploads.github.com/repos/{self.remote}/releases/{release_id}/assets",
+		    params={ "name": name },
+		    headers={
+		        "X-GitHub-Api-Version": "2022-11-28",
+		        "Authorization": f"Bearer {token}",
+		        "Content-Type": "application/octet-stream"
+		    },
+		    data=open(file, "rb")
+		)
 
 	def _delete_asset(self, token: str, asset_id: int, name: str, file: str):
-		_ = name; _ = file;
-		req.delete(f"https://api.github.com/repos/{self.remote}/releases/assets/{asset_id}", headers={
-			"X-GitHub-Api-Version": "2022-11-28",
-			"Authorization": f"Bearer {token}",
-		})
-
+		_ = name
+		_ = file
+		req.delete(
+		    f"https://api.github.com/repos/{self.remote}/releases/assets/{asset_id}",
+		    headers={
+		        "X-GitHub-Api-Version": "2022-11-28",
+		        "Authorization": f"Bearer {token}",
+		    }
+		)
 
 	def _upload_database(self, token: str):
 		# we need to find the release id
@@ -162,11 +176,6 @@ class Repository:
 		self._upload_asset(token, release_id, f"{self.name}.db.sig", sig_file)
 		print(f"{msg.GREEN}done{msg.ALL_OFF}")
 
-
-
-
-
-
 	def _upload_package(self, token: str, pkg: Package, pkg_file: str):
 		exists, other_manifests = self._check_package_existence(pkg, token)
 		if exists == Existence.EXISTS:
@@ -177,9 +186,11 @@ class Repository:
 			msg.log2(f"{pkg.name}{msg.ALL_OFF} ({msg.GREEN}{pkg.version}{msg.ALL_OFF}): ", end='')
 
 		else:
-			msg.log2(f"{pkg.name}{msg.ALL_OFF} ({msg.YELLOW}conflicting hash{msg.ALL_OFF}) " + \
-				f"({msg.GREEN}{pkg.version}{msg.ALL_OFF}): ", end='')
-
+			msg.log2(
+			    f"{pkg.name}{msg.ALL_OFF} ({msg.YELLOW}conflicting hash{msg.ALL_OFF}) "
+			    + f"({msg.GREEN}{pkg.version}{msg.ALL_OFF}): ",
+			    end=''
+			)
 
 		pkg_url = f"{self.remote}/{pkg.sanitised_name()}"
 
@@ -192,13 +203,11 @@ class Repository:
 			upload_url = r.headers["location"]
 
 			print(f"{msg.PINK}blob {msg.ALL_OFF}({msg.BOLD}{human_size(pkg.size)}{msg.ALL_OFF}), ", end='', flush=True)
-			r = self._put(upload_url, token, data=open(pkg_file, "rb"), params={"digest": f"sha256:{pkg.sha256}"})
-
+			r = self._put(upload_url, token, data=open(pkg_file, "rb"), params={ "digest": f"sha256:{pkg.sha256}"})
 
 		m = pkg.manifest()
 		m["annotations"] = {
-			"org.opencontainers.image.title": pkg.name,
-			"org.opencontainers.image.version": str(pkg.version)
+		    "org.opencontainers.image.title": pkg.name, "org.opencontainers.image.version": str(pkg.version)
 		}
 
 		# this makes github link the repo with the package
@@ -210,13 +219,11 @@ class Repository:
 
 		print(f"{msg.PINK}index{msg.ALL_OFF}, ", end='', flush=True)
 		manifest_desc: dict[str, Any] = {
-			"mediaType": mimes.MANIFEST,
-			"digest": f"sha256:{manifest_digest}",
-			"size": len(manifest_str)
+		    "mediaType": mimes.MANIFEST, "digest": f"sha256:{manifest_digest}", "size": len(manifest_str)
 		}
 
 		assert pkg.arch is not None
-		if pkg.arch in [ "x86_64", "arm64", "arm64e", "aarch64" ]:
+		if pkg.arch in ["x86_64", "arm64", "arm64e", "aarch64"]:
 			_arch: str
 			if pkg.arch in ["arm64", "arm64e", "aarch64"]:
 				_arch = "arm64"
@@ -225,35 +232,37 @@ class Repository:
 			else:
 				assert False
 			manifest_desc["platform"] = {
-				"os": "darwin",
-				"architecture": _arch,
+			    "os": "darwin",
+			    "architecture": _arch,
 			}
 		elif pkg.arch != "any":
 			msg.error(f"Package {pkg} has unsupported arch '{pkg.arch}'")
 
-
 		index = {
-			"schemaVersion": 2,
-			"mediaType": mimes.INDEX,
-			"manifests": other_manifests + [manifest_desc],
-			"annotations": {
-				"org.opencontainers.image.title": f"{pkg.name}",
-				"org.opencontainers.image.version": f"{pkg.version}",
-				"org.opencontainers.image.source": f"https://github.com/{self.remote}"
-			}
+		    "schemaVersion": 2,
+		    "mediaType": mimes.INDEX,
+		    "manifests": other_manifests + [manifest_desc],
+		    "annotations": {
+		        "org.opencontainers.image.title": f"{pkg.name}",
+		        "org.opencontainers.image.version": f"{pkg.version}",
+		        "org.opencontainers.image.source": f"https://github.com/{self.remote}"
+		    }
 		}
 
 		# we must replace the colon in the epoch with a '-' because ':' is not valid in a tag
-		self._put(f"/v2/{pkg_url}/manifests/{pkg.version.sanitise()}", token,
-			data=json.dumps(index), content_type=mimes.INDEX)
+		self._put(
+		    f"/v2/{pkg_url}/manifests/{pkg.version.sanitise()}",
+		    token,
+		    data=json.dumps(index),
+		    content_type=mimes.INDEX
+		)
 
 		print(f"{msg.PINK}manifest{msg.ALL_OFF}, ", end='', flush=True)
-		self._put(f"/v2/{pkg_url}/manifests/sha256:{manifest_digest}", token,
-			data=manifest_str, content_type=mimes.MANIFEST)
+		self._put(
+		    f"/v2/{pkg_url}/manifests/sha256:{manifest_digest}", token, data=manifest_str, content_type=mimes.MANIFEST
+		)
 
 		print(f"{msg.GREEN}done{msg.ALL_OFF}")
-
-
 
 	def _get_package_platform(self, pkg: Package) -> Optional[dict[str, Any]]:
 		assert pkg.arch is not None
@@ -261,13 +270,12 @@ class Repository:
 		if pkg.arch == "any":
 			return None
 		elif pkg.arch in ["arm64", "arm64e", "aarch64"]:
-			return { "os": MANIFEST_OS, "architecture": "arm64" }
+			return { "os": MANIFEST_OS, "architecture": "arm64"}
 		elif pkg.arch == "x86_64":
-			return { "os": MANIFEST_OS, "architecture": "amd64" }
+			return { "os": MANIFEST_OS, "architecture": "amd64"}
 		else:
 			msg.error(f"Package {pkg} has unsupported arch '{pkg.arch}'")
 			return None
-
 
 	def _check_package_existence(self, pkg: Package, token: str) -> tuple[Existence, list[dict[str, Any]]]:
 		pkg_url = f"{self.remote}/{pkg.sanitised_name()}"
@@ -297,14 +305,14 @@ class Repository:
 			else:
 				other_manifests.append(manifest)
 
-
 		if this_manifest_digest is not None:
 			mm = self._get(f"/v2/{pkg_url}/manifests/{this_manifest_digest}", token, failable=True)
 			if mm.status_code == 404:
 				return Existence.NONE, other_manifests
 
 			mmj = mm.json()
-			if mmj["schemaVersion"] != 2 or mmj["mediaType"] != mimes.MANIFEST or mmj["config"]["mediaType"] != mimes.CONFIG:
+			if mmj["schemaVersion"] != 2 or mmj["mediaType"] != mimes.MANIFEST or mmj["config"]["mediaType"
+			                                                                                    ] != mimes.CONFIG:
 				msg.error(f"Registry returned weird response:\n{mmj}")
 				return Existence.CONFLICTS, other_manifests
 
@@ -317,25 +325,33 @@ class Repository:
 		else:
 			return Existence.NONE, other_manifests
 
+	def _request(
+	    self,
+	    method: str,
+	    url: str,
+	    token: str,
+	    *,
+	    content_type: Optional[str] = None,
+	    failable: bool = False,
+	    **kwargs: Any
+	) -> req.Response:
 
-
-
-	def _request(self, method: str, url: str, token: str, *,
-		         content_type: Optional[str] = None,
-		         failable: bool = False, **kwargs: Any) -> req.Response:
-
-		resp = req.request(method, urlparse.urljoin(self.registry.url(), url), headers={
-			"Content-Type": content_type or mimes.BYTES,
-			"Authorization": f"Bearer {token}",
-			"Accept": ','.join([mimes.INDEX, mimes.CONFIG, mimes.MANIFEST])
-		}, **kwargs)
+		resp = req.request(
+		    method,
+		    urlparse.urljoin(self.registry.url(), url),
+		    headers={
+		        "Content-Type": content_type or mimes.BYTES,
+		        "Authorization": f"Bearer {token}",
+		        "Accept": ','.join([mimes.INDEX, mimes.CONFIG, mimes.MANIFEST])
+		    },
+		    **kwargs
+		)
 
 		if not failable and not (200 <= resp.status_code <= 299):
 			print("", file=sys.stderr)
 			msg.error(f"{method.upper()} response failed ({resp.status_code}):\n{resp.text}")
 
 		return resp
-
 
 	def _get(self, url: str, token: str, *args: Any, **kwargs: Any) -> req.Response:
 		return self._request("get", url, token, *args, **kwargs)

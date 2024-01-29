@@ -59,14 +59,15 @@ def _wait_for_ok():
 def _download_bar(total: int) -> Any:
 	return tqdm.tqdm(
 	    desc=f"{msg.blue('  ->')} {msg.bold('Downloading')}",
-	    unit=f"iB",
+	    unit=f"B",
 	    total=total,
 	    unit_scale=True,
 	    unit_divisor=1024,
 	    dynamic_ncols=True,
 	    miniters=1,
-	    ascii=' =',
-	    bar_format="{desc:>10}: [{bar}] ({n_fmt:>3}/{total_fmt:>3} [{percentage:>3.0f}%], {rate_fmt}{postfix})",
+	    ascii=' ▬',
+	    bar_format="{desc:>10}: " + f"{msg.blue('[')}{{bar}}{msg.blue(']')}"
+	    + " ({n_fmt:>3}/{total_fmt:>3} [{percentage:>3.0f}%], {rate_fmt}{postfix})",
 	)
 
 
@@ -100,8 +101,6 @@ class VMSandBox:
 	user: str
 	stopped: bool = False
 
-	vmhelper_path: ClassVar[str] = get_vmhelper_path_or_die()
-
 	def __init__(self, vmhelper: subprocess.Popen[bytes], bundle_path: str, mac_addr: str):
 		# most of the things are handled by the vmhelper, nothing much for us to do
 		self.bundle = bundle_path
@@ -118,12 +117,14 @@ class VMSandBox:
 		msg.log("Stopping VM...")
 		if self.ip is not None:
 			# every time we stop the vm, update the version number.
-			os_version = self.send_command(f"sw_vers -productVersion", capture=True)
-
 			with open(os.path.join(self.bundle, "config.json"), "r") as c:
 				cfg = json.load(c)
 
-			cfg["os_ver"] = os_version
+			os_version = self.send_command(f"sw_vers -productVersion", capture=True)[0]
+			os_arch = self.send_command(f"uname -m", capture=True)[0]
+
+			cfg["os_ver"] = os_version.strip()
+			cfg["arch"] = os_arch.strip()
 			with open(os.path.join(self.bundle, "config.json"), "w") as c:
 				json.dump(cfg, c)
 
@@ -156,7 +157,7 @@ class VMSandBox:
 
 		vmhelper = subprocess.Popen(
 		    [
-		        cls.vmhelper_path,
+		        get_vmhelper_path_or_die(),
 		        ("rungui" if gui else "run"),
 		        bundle_path,
 		    ],
@@ -174,7 +175,7 @@ class VMSandBox:
 
 		sb_config = config().sandbox
 		rc = subprocess.Popen([
-		    cls.vmhelper_path,
+		    get_vmhelper_path_or_die(),
 		    "create",
 		    bundle_path,
 		    ipsw_path,
@@ -228,7 +229,7 @@ class VMSandBox:
 	def setup(cls, bundle_path: str, username: str, password: str) -> bool:
 		rc = subprocess.Popen(
 		    [
-		        cls.vmhelper_path,
+		        get_vmhelper_path_or_die(),
 		        "setup",
 		        bundle_path,
 		        username,
@@ -290,6 +291,20 @@ class VMSandBox:
 		host_tz = '/'.join(os.path.realpath('/etc/localtime').split('/')[-2:])
 		cmd(f"sudo systemsetup -settimezone '{host_tz}'")
 
+		# https://github.com/cirruslabs/macos-image-templates/blob/master/templates/vanilla-ventura.pkr.hcl
+		msg.log(f"Disabling screensavers etc.")
+		cmd(f"sudo defaults write /Library/Preferences/com.apple.screensaver loginWindowIdleTime 0")
+		cmd(f"defaults -currentHost write com.apple.screensaver idleTime 0")
+		cmd(f"sudo systemsetup -setdisplaysleep Off")
+		cmd(f"sudo systemsetup -setsleep Off")
+		cmd(f"sudo systemsetup -setcomputersleep Off")
+
+		cmd(f"defaults write com.apple.Dock autohide -bool true")
+		cmd(f"defaults write com.apple.Dock show-recents -bool false")
+		cmd(f"defaults write com.apple.Dock minimize-to-application -bool true")
+		cmd(f"defaults write com.apple.loginwindow TALLogoutSavesState -bool false")
+		cmd(f"defaults write com.apple.loginwindow LoginwindowLaunchesRelaunchApps -bool false")
+
 		if cmd("xcode-select -p", capture=True)[1] != 0:
 			msg.log(f"Installing Xcode CLT")
 			msg.log2(f"Looking for software updates...")
@@ -298,7 +313,7 @@ class VMSandBox:
 			cmd(f"sudo touch {flag}")
 
 			prod = cmd(
-			    r"""softwareupdate -l                    |
+			    r"""softwareupdate -l 2>/dev/null        |
 			    	grep -B 1 -E 'Command Line Tools'    |
 			    	awk -F'*' '/^ *\*/ {print $2}'       |
 			    	sed -e 's/^ *Label: //' -e 's/^ *//' |
@@ -309,7 +324,7 @@ class VMSandBox:
 
 			msg.log2(f"Found: '{prod}'")
 
-			success = cmd(f"sudo softwareupdate --verbose --install \"{prod}\"")[1] == 0
+			success = cmd(f"sudo softwareupdate --verbose --install \"{prod}\" 2>/dev/null")[1] == 0
 
 			if not success or cmd("stat '/Library/Developer/CommandLineTools'", capture=True)[1] != 0:
 				msg.error2(f"CLT failed to install, trying a different way...")

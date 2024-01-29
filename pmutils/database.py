@@ -17,6 +17,7 @@ from pmutils.package import Package
 
 from pmutils.msg import GREEN, PINK, GREY, WHITE, BOLD, UNCOLOUR, ALL_OFF
 
+
 class Database:
 	def __init__(self, db_path: str, packages: list[Package]):
 		self._db_path = path.realpath(db_path)
@@ -25,7 +26,7 @@ class Database:
 		for pkg in self._packages:
 			self._names[pkg.name] = pkg
 
-		self._additions: list[str] = []     # filenames
+		self._additions: list[str] = []  # filenames
 		self._add_names: dict[str, Package] = dict()
 		self._new_files: list[tuple[Package, str]] = []
 
@@ -58,8 +59,9 @@ class Database:
 			return False
 
 		# remove an old package if we need to.
-		new_pkg = Package.parse(file, size=os.stat(file).st_size,
-			sha256=hashlib.file_digest(open(file, "rb"), "sha256").hexdigest())
+		new_pkg = Package.parse(
+		    file, size=os.stat(file).st_size, sha256=hashlib.file_digest(open(file, "rb"), "sha256").hexdigest()
+		)
 
 		self._new_files.append((new_pkg, file))
 
@@ -82,9 +84,10 @@ class Database:
 
 			elif old_pkg.version > new_pkg.version:
 				if verbose:
-					msg.warn2(f"{'Ignoring ' if not allow_downgrade else 'Downgrading '}{new_pkg}" + \
-						f" ({GREY}{new_pkg.version}{UNCOLOUR} " + \
-						f"older than {GREEN}{old_pkg.version}{UNCOLOUR})")
+					msg.warn2(
+					    f"{'Ignoring ' if not allow_downgrade else 'Downgrading '}{new_pkg}"
+					    + f" ({GREY}{new_pkg.version}{UNCOLOUR} older than {GREEN}{old_pkg.version}{UNCOLOUR})"
+					)
 
 				return allow_downgrade
 
@@ -108,8 +111,11 @@ class Database:
 		self._additions.append(file)
 
 		if old_pkg is not None and did_remove:
-			msg.p(f"{WHITE}*{ALL_OFF} {BOLD}{new_pkg.name}{ALL_OFF}" + \
-				f" ({GREY}{old_pkg.version}{ALL_OFF} -> {GREEN}{new_pkg.version}{ALL_OFF})", end='')
+			msg.p(
+			    f"{WHITE}*{ALL_OFF} {BOLD}{new_pkg.name}{ALL_OFF} "
+			    + f"({GREY}{old_pkg.version}{ALL_OFF} -> {GREEN}{new_pkg.version}{ALL_OFF})",
+			    end=''
+			)
 		else:
 			msg.p(msg.white("+ ") + f"{BOLD}{new_pkg.name}{ALL_OFF}: {msg.green(str(new_pkg.version))}", end='')
 
@@ -133,8 +139,6 @@ class Database:
 
 		return True
 
-
-
 	# write the database to disk by applying pending remove and add operations (in that order)
 	# return a new database that has the updates.
 	def save(self) -> list[tuple[Package, str]]:
@@ -157,8 +161,30 @@ class Database:
 		if (b := len(self._additions)) > 0:
 			msg.log2(f"Adding {b} package{'' if b == 1 else 's'}")
 			try:
-				subprocess.check_call(["repo-add", "--quiet", "--prevent-downgrade", "--sign",
-					self._db_path, *self._additions])
+				# ok, because at this stage all we have is the filename, let's parse the filename
+				# again, and check whether the name of the package is the same as the sanitised name.
+				# if not, then we need to use the '--oci-name' option of our patched repo-add.
+				specials = set(
+				    filter(
+				        lambda x: x[1].name != x[1].sanitised_name(),
+				        map(lambda x: (x, Package.parse(x, size=1, sha256="")), self._additions)
+				    )
+				)
+				normals = set(self._additions) - set(x[0] for x in specials)
+
+				subprocess.check_call(["repo-add", "--quiet", "--prevent-downgrade", "--sign", self._db_path, *normals])
+				for sfile, spkg in specials:
+					subprocess.check_call([
+					    "repo-add",
+					    "--quiet",
+					    "--prevent-downgrade",
+					    "--oci-name",
+					    spkg.sanitised_name(),
+					    "--sign",
+					    self._db_path,
+					    sfile,
+					])
+
 			except:
 				msg.error_and_exit("Failed to add package!")
 
@@ -169,7 +195,6 @@ class Database:
 			msg.log("Updated database on disk")
 
 		return new_files
-
 
 	@staticmethod
 	def load(db_path: str) -> "Database":
@@ -183,7 +208,7 @@ class Database:
 			# note: we add '.tar.zst' explictily here.
 			try:
 				out = subprocess.check_output(["repo-add", "--sign", "--quiet", f"{db_path}.tar.zst"],
-					stderr=subprocess.PIPE).splitlines()
+				                              stderr=subprocess.PIPE).splitlines()
 			except:
 				msg.error_and_exit("Failed to create database!")
 
@@ -198,7 +223,6 @@ class Database:
 
 		return ret
 
-
 	def reload_from_file(self) -> "Database":
 		db_tar: tarfile.TarFile
 		if path.splitext(self._db_path)[1] == ".zst":
@@ -207,7 +231,7 @@ class Database:
 		else:
 			db_tar = tarfile.open(self._db_path)
 
-		self._packages = [ Package.from_tar_file(db_tar, x) for x in db_tar.getmembers() if x.isdir() ]
+		self._packages = [Package.from_tar_file(db_tar, x) for x in db_tar.getmembers() if x.isdir()]
 		for pkg in self._packages:
 			self._names[pkg.name] = pkg
 
@@ -216,4 +240,3 @@ class Database:
 		self._additions = []
 		self._removals = []
 		return self
-

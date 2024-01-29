@@ -1,4 +1,4 @@
-from . import run, oci
+from . import run, remote
 
-_ = oci
+_ = remote
 _ = run

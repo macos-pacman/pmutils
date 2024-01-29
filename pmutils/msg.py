@@ -46,32 +46,60 @@ def bold(s: str):
 	return f"{BOLD}{s}{ALL_OFF}"
 
 
+def slog(msg: str) -> str:
+	return f"{green('==>')} {bold(msg)}"
+
+
+def slog2(msg: str):
+	return f"{blue('  ->')} {bold(msg)}"
+
+
+def slog3(msg: str):
+	return f"{pink('    +')} {bold(msg)}"
+
+
+def swarn2(msg: str):
+	return f"{yellow('  -> WARNING:')} {bold(msg)}"
+
+
+def swarn(msg: str):
+	return f"{yellow('==> WARNING:')} {bold(msg)}"
+
+
+def serror(msg: str):
+	return f"{red('==> ERROR:')} {bold(msg)}"
+
+
+def serror2(msg: str):
+	return f"{red('  -> ERROR:')} {bold(msg)}"
+
+
 def log(msg: str, end: str = '\n'):
-	print(f"{green('==>')} {bold(msg)}", flush=True, end=end)
+	print(slog(msg), flush=True, end=end)
 
 
 def log2(msg: str, end: str = '\n'):
-	print(f"{blue('  ->')} {bold(msg)}", flush=True, end=end)
+	print(slog2(msg), flush=True, end=end)
 
 
 def log3(msg: str, end: str = '\n'):
-	print(f"{pink('    +')} {bold(msg)}", flush=True, end=end)
-
-
-def warn2(msg: str):
-	print(f"{yellow('  -> WARNING:')} {bold(msg)}", flush=True, file=sys.stderr)
+	print(slog3(msg), flush=True, end=end)
 
 
 def warn(msg: str):
-	print(f"{yellow('==> WARNING:')} {bold(msg)}", flush=True, file=sys.stderr)
+	print(swarn(msg), flush=True, file=sys.stderr)
+
+
+def warn2(msg: str):
+	print(swarn2(msg), flush=True, file=sys.stderr)
 
 
 def error(msg: str, end: str = '\n'):
-	print(f"{red('==> ERROR:')} {bold(msg)}", end=end, flush=True, file=sys.stderr)
+	print(serror(msg), end=end, flush=True, file=sys.stderr)
 
 
 def error2(msg: str):
-	print(f"{red('  -> ERROR:')} {bold(msg)}", flush=True, file=sys.stderr)
+	print(serror2(msg), flush=True, file=sys.stderr)
 
 
 def error_and_exit(msg: str) -> NoReturn:
@@ -95,7 +123,6 @@ def dedent():
 
 
 class Indent:
-
 	def __init__(self):
 		pass
 
