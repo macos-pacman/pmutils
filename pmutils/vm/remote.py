@@ -50,10 +50,8 @@ def _make_bar(desc: str, *, loglevel: int, data: Optional[BytesIO] = None, **kwa
 		msg.error_and_exit(f"loglevel should be 2 or 3")
 
 	if loglevel == 2:
-		# desclen = len(f"  -> {desc}")
 		desc = msg.slog2(desc)
 	else:
-		# desclen = len(f"    + {desc}")
 		desc = msg.slog3(desc)
 
 	bar = tqdm.tqdm(
@@ -65,7 +63,7 @@ def _make_bar(desc: str, *, loglevel: int, data: Optional[BytesIO] = None, **kwa
 	    dynamic_ncols=True,
 	    miniters=1,
 	    maxinterval=0.3,
-	    ascii=' ▬',
+	    ascii=" ▬",
 	    bar_format=f"{{desc:<18}}: {msg.blue('[')}{{bar}}{msg.blue(']')} ({{n_fmt:<5}}/{{total_fmt:>5}}"
 	    + " [{percentage:>3.0f}%], {rate_fmt:>8}{postfix}) ",
 	    **kwargs,
