@@ -51,7 +51,7 @@ class Version(IVersion):
 		# return int(subprocess.check_output(["vercmp", str(self), str(other)])) > 0
 
 	def __eq__(self, other: object) -> bool:
-		return isinstance(other, Self) and pyalpm.vercmp(str(self), str(other)) == 0
+		return isinstance(other, Version) and pyalpm.vercmp(str(self), str(other)) == 0
 
 	def __ne__(self, other: object) -> bool:
 		return not (self == other)
