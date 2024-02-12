@@ -32,6 +32,50 @@ def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
 	return env
 
 
+def edit_build_number(increment: bool = True) -> tuple[Optional[int], Optional[int]]:
+	new_lines: list[str] = []
+	old_buildnum: Optional[int] = None
+	new_buildnum: Optional[int] = None
+	pkgrel_line_idx: Optional[int] = None
+
+	found_buildnum = False
+
+	with open("PKGBUILD", "r") as pkgbuild:
+		for line_idx, line in enumerate(pkgbuild.read().splitlines()):
+			if (m := re.fullmatch(r"pkgrel\+=\"(?:\.(\d+))?\"", line)) is not None:
+				if (buildnum := m.groups()[0]) is None:
+					# it was empty (pkgrel+=""), so make it .1
+					if increment:
+						new_lines.append('pkgrel+=".1"')
+						new_buildnum = 1
+				else:
+					old_buildnum = int(buildnum)
+					if increment:
+						new_buildnum = old_buildnum + 1
+					else:
+						new_buildnum = old_buildnum - 1
+					new_lines.append(f'pkgrel+=".{new_buildnum}"')
+				found_buildnum = True
+
+			else:
+				new_lines.append(line)
+				if line.startswith("pkgrel="):
+					pkgrel_line_idx = line_idx
+
+	if increment and not found_buildnum:
+		assert pkgrel_line_idx is not None
+		new_lines = new_lines[:1 + pkgrel_line_idx] + ['pkgrel+=".1"'] + new_lines[1 + pkgrel_line_idx:]
+
+	new_name = ".PKGBUILD.new"
+	with open(new_name, "w") as new:
+		new.write('\n'.join(new_lines))
+		new.write("\n")
+
+	os.rename(new_name, "PKGBUILD")
+
+	return (old_buildnum, new_buildnum)
+
+
 def makepkg(
     registry: Registry,
     *,
@@ -45,8 +89,7 @@ def makepkg(
     update_buildnum: bool,
     confirm: bool = True
 ):
-
-	args = ["makepkg", "-f"]
+	args: list[str] = []
 	if not check:
 		args += ["--nocheck"]
 	if not verify_pgp:
@@ -56,38 +99,7 @@ def makepkg(
 		if not os.path.exists("PKGBUILD"):
 			msg.error_and_exit(f"Could not find PKGBUILD in the current directory")
 
-		new_name = ".PKGBUILD.new"
-
-		new_lines: list[str] = []
-		old_buildnum: Optional[int] = None
-		new_buildnum: Optional[int] = None
-		pkgrel_line_idx: Optional[int] = None
-
-		found_buildnum = False
-
-		with open("PKGBUILD", "r") as pkgbuild:
-			for line_idx, line in enumerate(pkgbuild.read().splitlines()):
-				if (m := re.fullmatch(r"pkgrel\+=\"(?:\.(\d+))?\"", line)) is not None:
-					if (buildnum := m.groups()[0]) is None:
-						# it was empty (pkgrel+=""), so make it .1
-						new_lines.append('pkgrel+=".1"')
-					else:
-						old_buildnum = int(buildnum)
-						new_buildnum = old_buildnum + 1
-						new_lines.append(f'pkgrel+=".{new_buildnum}"')
-					found_buildnum = True
-				else:
-					new_lines.append(line)
-					if line.startswith("pkgrel="):
-						pkgrel_line_idx = line_idx
-
-		if not found_buildnum:
-			assert pkgrel_line_idx is not None
-			new_lines = new_lines[:1 + pkgrel_line_idx] + ['pkgrel+=".1"'] + new_lines[1 + pkgrel_line_idx:]
-
-		with open(new_name, "w") as new:
-			new.write('\n'.join(new_lines))
-			new.write("\n")
+		(old_buildnum, new_buildnum) = edit_build_number(increment=True)
 
 		msg.log2(f"Updating build number: ", end='')
 		if old_buildnum:
@@ -95,16 +107,23 @@ def makepkg(
 		else:
 			print(f"{msg.GREEN}{new_buildnum or 1}{msg.ALL_OFF}")
 
-		os.rename(new_name, "PKGBUILD")
-
 	with tempfile.TemporaryDirectory() as tmp:
 		env = exit_virtual_environment(dict(os.environ))
 		env["PKGDEST"] = tmp
 
 		args += [f"PKGDEST={tmp}"]
 		try:
-			sp.check_call(args, env=env)
+			sp.check_call(["makepkg", "-f", *args], env=env)
 		except:
+			# rollback the build num
+			if update_buildnum:
+				msg.warn(f"Rolling back build number: ", end='')
+				(old_buildnum, new_buildnum) = edit_build_number(increment=False)
+				if old_buildnum:
+					print(f"{msg.RED}{new_buildnum}{msg.ALL_OFF} <- {msg.GREY}{old_buildnum or 1}{msg.ALL_OFF}")
+				else:
+					print(f"{msg.RED}{new_buildnum or 1}{msg.ALL_OFF}")
+
 			msg.error_and_exit("Failed to build package!")
 
 		packages: list[str] = []
@@ -128,7 +147,11 @@ def makepkg(
 			msg.log("Installing package(s)")
 			try:
 				sp.check_call([
-				    "sudo", "pacman", *([] if confirm else ["--noconfirm"]), "-U", *[f"{tmp}/{x}" for x in packages]
+				    "sudo",
+				    "pacman",
+				    *([] if confirm else ["--noconfirm"]),
+				    "-U",
+				    *[f"{tmp}/{x}" for x in packages],
 				])
 			except:
 				msg.error_and_exit("Failed to install package!")

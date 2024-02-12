@@ -154,7 +154,7 @@ class Database:
 
 			msg.log2(f"Removing {a} package{'' if a == 1 else 's'}")
 			try:
-				subprocess.check_call(["repo-remove", "--quiet", self._db_path, *rm])
+				subprocess.check_call(["repo-remove", "--quiet", self._db_path, *rm], start_new_session=True)
 			except:
 				msg.error_and_exit("Failed to remove package!")
 
@@ -172,18 +172,22 @@ class Database:
 				)
 				normals = set(self._additions) - set(x[0] for x in specials)
 
-				subprocess.check_call(["repo-add", "--quiet", "--prevent-downgrade", "--sign", self._db_path, *normals])
+				subprocess.check_call(["repo-add", "--quiet", "--prevent-downgrade", "--sign", self._db_path, *normals],
+				                      start_new_session=True)
 				for sfile, spkg in specials:
-					subprocess.check_call([
-					    "repo-add",
-					    "--quiet",
-					    "--prevent-downgrade",
-					    "--oci-name",
-					    spkg.sanitised_name(),
-					    "--sign",
-					    self._db_path,
-					    sfile,
-					])
+					subprocess.check_call(
+					    [
+					        "repo-add",
+					        "--quiet",
+					        "--prevent-downgrade",
+					        "--oci-name",
+					        spkg.sanitised_name(),
+					        "--sign",
+					        self._db_path,
+					        sfile,
+					    ],
+					    start_new_session=True,
+					)
 
 			except:
 				msg.error_and_exit("Failed to add package!")
@@ -208,7 +212,8 @@ class Database:
 			# note: we add '.tar.zst' explictily here.
 			try:
 				out = subprocess.check_output(["repo-add", "--sign", "--quiet", f"{db_path}.tar.zst"],
-				                              stderr=subprocess.PIPE).splitlines()
+				                              stderr=subprocess.PIPE,
+				                              start_new_session=True).splitlines()
 			except:
 				msg.error_and_exit("Failed to create database!")
 

@@ -86,11 +86,11 @@ def log3(msg: str, end: str = '\n'):
 	print(slog3(msg), flush=True, end=end)
 
 
-def warn(msg: str):
-	print(swarn(msg), flush=True, file=sys.stderr)
+def warn(msg: str, end: str = '\n'):
+	print(swarn(msg), flush=True, end=end, file=sys.stderr)
 
 
-def warn2(msg: str):
+def warn2(msg: str, end: str = '\n'):
 	print(swarn2(msg), flush=True, file=sys.stderr)
 
 
@@ -98,7 +98,7 @@ def error(msg: str, end: str = '\n'):
 	print(serror(msg), end=end, flush=True, file=sys.stderr)
 
 
-def error2(msg: str):
+def error2(msg: str, end: str = '\n'):
 	print(serror2(msg), flush=True, file=sys.stderr)
 
 
