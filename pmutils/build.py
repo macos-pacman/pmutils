@@ -87,7 +87,8 @@ def makepkg(
     install: bool,
     allow_downgrade: bool,
     update_buildnum: bool,
-    confirm: bool = True
+    use_sandbox: bool,
+    confirm: bool = True,
 ):
 	args: list[str] = []
 	if not check:
@@ -116,15 +117,15 @@ def makepkg(
 			sp.check_call(["makepkg", "-f", *args], env=env)
 		except:
 			# rollback the build num
+			msg.error("Failed to build package!")
 			if update_buildnum:
-				msg.warn(f"Rolling back build number: ", end='')
+				msg.log2(f"Rolling back build number: ", end='')
 				(old_buildnum, new_buildnum) = edit_build_number(increment=False)
 				if old_buildnum:
 					print(f"{msg.RED}{new_buildnum}{msg.ALL_OFF} <- {msg.GREY}{old_buildnum or 1}{msg.ALL_OFF}")
 				else:
 					print(f"{msg.RED}{new_buildnum or 1}{msg.ALL_OFF}")
-
-			msg.error_and_exit("Failed to build package!")
+			sys.exit(1)
 
 		packages: list[str] = []
 		for pkg in os.listdir(tmp):

@@ -53,6 +53,7 @@ def rebase_package(
     allow_downgrade: bool,
     update_buildnum: bool
 ) -> bool:
+	pkg_dir = os.path.realpath(pkg_dir)
 
 	if not os.path.exists(pkg_dir) or not os.path.isdir(pkg_dir):
 		msg.warn(f"Skipping nonexistent folder '{pkg_dir}'")
@@ -101,7 +102,7 @@ def rebase_package(
 	old_ver = local_srcinfo.version()
 	if new_ver < old_ver:
 		msg.warn2(f"Upstream version '{new_ver}' is " + \
-                     f"older than local '{old_ver}'{' (not installing)' if install_pkg else ''}")
+                                       f"older than local '{old_ver}'{' (not installing)' if install_pkg else ''}")
 
 		install_pkg = False
 	elif old_ver == new_ver:
@@ -140,7 +141,8 @@ def rebase_package(
 			    install=install_pkg,
 			    confirm=True,
 			    allow_downgrade=allow_downgrade,
-			    update_buildnum=update_buildnum
+			    update_buildnum=update_buildnum,
+			    use_sandbox=True,
 			)
 
 	if have_fails:

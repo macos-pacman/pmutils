@@ -21,6 +21,7 @@ PACKAGE_NAMESPACE = f"archlinux/packaging/packages"
 PMDIFF_JSON_FILE = ".changes.json"
 DEFAULT_IGNORE_FILES = [".SRCINFO"]
 
+
 @dataclass(frozen=True)
 class FileDiff:
 	name: str
@@ -29,14 +30,16 @@ class FileDiff:
 	new: bool = False
 
 
-def get_file_list(repo_url: str, ignored_srcs: list[str], commit: Optional[str] = None) -> Optional[list[tuple[str, str]]]:
-	resp = req.get(f"{repo_url}/tree", params=({"ref": commit} if commit else {}))
+def get_file_list(repo_url: str,
+                  ignored_srcs: list[str],
+                  commit: Optional[str] = None) -> Optional[list[tuple[str, str]]]:
+	resp = req.get(f"{repo_url}/tree", params=({ "ref": commit } if commit else {}))
 	if resp.status_code != 200:
 		msg.error2(f"Could not fetch upstream package info: {resp.text}")
 		return None
 
 	resp_json: list[Any] = resp.json()
-	files: list[tuple[str, str]] = []   # (name, id)
+	files: list[tuple[str, str]] = []     # (name, id)
 
 	for obj in resp_json:
 		obj: dict[str, Any]
@@ -62,8 +65,13 @@ def _diff_file(repo_url: str, upstream_sha: str, local_path: str) -> Optional[Fi
 		return FileDiff(name=filename, diff="", upstream=resp.text, new=True)
 
 	# ignore the exit code
-	output = subprocess.run(["diff", "-Nd", "--unified=0", f"--label={filename}", f"--label={filename}",
-		"-", os.path.normpath(local_path)], text=True, input=resp.text, check=False, capture_output=True)
+	output = subprocess.run([
+	    "diff", "-Nd", "--unified=0", f"--label={filename}", f"--label={filename}", "-", os.path.normpath(local_path)
+	],
+	                        text=True,
+	                        input=resp.text,
+	                        check=False,
+	                        capture_output=True)
 
 	if output.returncode == 2:
 		msg.warn2(f"Diff produced an error: {output.stderr}")
@@ -72,7 +80,6 @@ def _diff_file(repo_url: str, upstream_sha: str, local_path: str) -> Optional[Fi
 		return FileDiff(name=filename, diff="", upstream=resp.text)
 
 	return FileDiff(name=filename, diff=output.stdout, upstream=resp.text)
-
 
 
 @dataclass
@@ -103,23 +110,23 @@ class PmDiffFile:
 				return None
 
 			return PmDiffFile(
-				upstream_commit=j["upstream_commit"],
-				diff_files=list(map(str, j.get("diff_files", []))),
-				clean_files=list(map(str, j.get("clean_files", []))),
-				ignore_files=list(set(map(str, j.get("ignore_files", []))) | set(DEFAULT_IGNORE_FILES))
+			    upstream_commit=j["upstream_commit"],
+			    diff_files=list(map(str, j.get("diff_files", []))),
+			    clean_files=list(map(str, j.get("clean_files", []))),
+			    ignore_files=list(set(map(str, j.get("ignore_files", []))) | set(DEFAULT_IGNORE_FILES))
 			)
 
 	def save(self, path: str = PMDIFF_JSON_FILE):
 		with open(path, "w") as f:
-			f.write(json.dumps({
-				"upstream_commit": self.upstream_commit,
-				"diff_files": self.diff_files,
-				"clean_files": self.clean_files,
-				"ignore_files": self.ignore_files,
-			}, indent=2))
-
-
-
+			f.write(
+			    json.dumps({
+			        "upstream_commit": self.upstream_commit,
+			        "diff_files": self.diff_files,
+			        "clean_files": self.clean_files,
+			        "ignore_files": self.ignore_files,
+			    },
+			               indent=2)
+			)
 
 
 def _generator(repo_url: str, ignored_srcs: list[str], commit_sha: Optional[str]):
@@ -151,10 +158,10 @@ def _generator(repo_url: str, ignored_srcs: list[str], commit_sha: Optional[str]
 	yield (None, PmDiffFile(commit_sha, diff_files=diff_files, clean_files=clean_files, ignore_files=ignored_srcs))
 
 
-
-def diff_package_lazy(pkg_path: str,
-	force: bool,
-	fetch_latest: bool = False
+def diff_package_lazy(
+    pkg_path: str,
+    force: bool,
+    fetch_latest: bool = False
 ) -> Optional[Iterator[tuple[Optional[FileDiff], Optional[PmDiffFile]]]]:
 
 	pkgbuild_path = f"{pkg_path}/PKGBUILD"
@@ -183,7 +190,6 @@ def diff_package_lazy(pkg_path: str,
 			return _generator(REPO_URL, pmdiff.ignore_files, commit_sha=commit)
 
 
-
 def save_diff(diff: FileDiff, update_local: bool, keep_old: bool):
 	if not diff.new and len(diff.diff) > 0:
 		with open(f"{diff.name}.pmdiff", "w") as d:
@@ -197,13 +203,16 @@ def save_diff(diff: FileDiff, update_local: bool, keep_old: bool):
 			f.write(diff.upstream)
 
 
-def diff_package(pkg_path: str,
-	force: bool,
-	keep_old: bool = False,
-	update_local: bool = False,
-	fetch_latest: bool = False,
-	commit: bool = False
+def diff_package(
+    pkg_path: str,
+    force: bool,
+    keep_old: bool = False,
+    update_local: bool = False,
+    fetch_latest: bool = False,
+    commit: bool = False
 ) -> bool:
+
+	pkg_path = os.path.realpath(pkg_path)
 
 	pkgbuild_path = f"{pkg_path}/PKGBUILD"
 	if not os.path.exists(pkgbuild_path):
@@ -226,7 +235,6 @@ def diff_package(pkg_path: str,
 			msg.log2(f"{diff.name}")
 			save_diff(diff, update_local=update_local, keep_old=keep_old)
 
-
 		# re-read the pkgbuild
 		ver = util.get_srcinfo(pkgbuild_path).version()
 
@@ -244,8 +252,6 @@ def diff_package(pkg_path: str,
 				msg.warn2(f"Commit failed!")
 
 	return True
-
-
 
 
 def fetch_upstream_package(root_dir: str, pkg_name: str, force: bool) -> bool:

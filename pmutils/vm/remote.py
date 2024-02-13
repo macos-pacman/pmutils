@@ -263,5 +263,7 @@ def upload_bundle():
 	msg.log("Done!")
 
 
+# TODO
 def download_bundle():
+	msg.error_and_exit("Not implemented yet, oops!")
 	pass

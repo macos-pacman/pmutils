@@ -336,6 +336,7 @@ def cmd_rebase(
 @click.option("-i", "--install", is_flag=True, help="Install the package after building")
 @click.option("-k", "--keep", is_flag=True, help="Keep the package after building it")
 @click.option("-d", "--delete", is_flag=True, help="Delete the package after building it")
+@click.option("--sandbox/--no-sandbox", is_flag=True, default=True, help="Use the VM Sandbox to build packages")
 @click.argument("directory", required=False, nargs=1, type=click.Path(exists=True, dir_okay=True))
 def cmd_build(
     ctx: Any,
@@ -349,7 +350,8 @@ def cmd_build(
     repo: Optional[str],
     add: bool,
     allow_downgrade: bool,
-    buildnum: bool
+    buildnum: bool,
+    sandbox: bool,
 ):
 	if keep and delete:
 		msg.error_and_exit(f"`--keep` and `--delete` cannot be used together")
@@ -379,7 +381,8 @@ def cmd_build(
 		    upload=upload,
 		    install=install,
 		    allow_downgrade=allow_downgrade,
-		    update_buildnum=buildnum
+		    update_buildnum=buildnum,
+		    use_sandbox=sandbox,
 		)
 
 	msg.log("Done")
@@ -403,10 +406,8 @@ def cmd_sandbox(ctx: Any, gui: bool, restore: bool, bootstrap: bool, upload: boo
 	Config.load(ctx.meta["config_file"])
 	if upload:
 		vm.remote.upload_bundle()
-
 	elif download:
-		pass
-
+		vm.remote.download_bundle()
 	else:
 		if (vz := vm.run.load_or_create_sandbox(gui=gui, restore=restore, bootstrap=bootstrap, ipsw_path=ipsw)) is None:
 			return
