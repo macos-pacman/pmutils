@@ -5,6 +5,8 @@
 import os
 import re
 import sys
+import enum
+import json
 import tempfile
 import subprocess as sp
 
@@ -12,6 +14,7 @@ from typing import *
 from pmutils import msg
 from pmutils.registry import Registry
 from pmutils.makepkg import PackageBuilder
+from pmutils.diff import PMDIFF_JSON_FILE
 
 
 def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
@@ -35,7 +38,13 @@ def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
 	return env
 
 
-def edit_build_number(increment: bool = True) -> tuple[Optional[int], Optional[int]]:
+class BuildNumMode(enum.Enum):
+	INCREMENT = 1
+	DECREMENT = 2
+	RESET = 3
+
+
+def edit_build_number(mode: BuildNumMode) -> tuple[Optional[int], Optional[int]]:
 	new_lines: list[str] = []
 	old_buildnum: Optional[int] = None
 	new_buildnum: Optional[int] = None
@@ -48,15 +57,20 @@ def edit_build_number(increment: bool = True) -> tuple[Optional[int], Optional[i
 			if (m := re.fullmatch(r"pkgrel\+=\"(?:\.(\d+))?\"", line)) is not None:
 				if (buildnum := m.groups()[0]) is None:
 					# it was empty (pkgrel+=""), so make it .1
-					if increment:
+					if mode in [BuildNumMode.INCREMENT, BuildNumMode.RESET]:
 						new_lines.append('pkgrel+=".1"')
 						new_buildnum = 1
 				else:
 					old_buildnum = int(buildnum)
-					if increment:
+					if mode == BuildNumMode.INCREMENT:
 						new_buildnum = old_buildnum + 1
-					else:
+					elif mode == BuildNumMode.DECREMENT:
 						new_buildnum = old_buildnum - 1
+					elif mode == BuildNumMode.RESET:
+						new_buildnum = 1
+					else:
+						msg.error_and_exit("?!")
+
 					new_lines.append(f'pkgrel+=".{new_buildnum}"')
 				found_buildnum = True
 
@@ -65,7 +79,7 @@ def edit_build_number(increment: bool = True) -> tuple[Optional[int], Optional[i
 				if line.startswith("pkgrel="):
 					pkgrel_line_idx = line_idx
 
-	if increment and not found_buildnum:
+	if (mode in [BuildNumMode.INCREMENT, BuildNumMode.RESET]) and not found_buildnum:
 		assert pkgrel_line_idx is not None
 		new_lines = new_lines[:1 + pkgrel_line_idx] + ['pkgrel+=".1"'] + new_lines[1 + pkgrel_line_idx:]
 
@@ -108,7 +122,7 @@ def makepkg(
 			msg.error_and_exit(f"Could not find PKGBUILD in the current directory")
 
 		msg.log2(f"Updating build number: ", end='')
-		(old_buildnum, new_buildnum) = edit_build_number(increment=True)
+		(old_buildnum, new_buildnum) = edit_build_number(BuildNumMode.INCREMENT)
 
 		if old_buildnum:
 			print(f"{msg.GREY}{old_buildnum}{msg.ALL_OFF} -> {msg.GREEN}{new_buildnum or 1}{msg.ALL_OFF}")
@@ -118,7 +132,7 @@ def makepkg(
 	def rollback_buildnum():
 		if update_buildnum:
 			msg.log2(f"Rolling back build number: ", end='')
-			(old_buildnum, new_buildnum) = edit_build_number(increment=False)
+			(old_buildnum, new_buildnum) = edit_build_number(BuildNumMode.DECREMENT)
 			if old_buildnum:
 				print(f"{msg.RED}{new_buildnum}{msg.ALL_OFF} <- {msg.GREY}{old_buildnum or 1}{msg.ALL_OFF}")
 			else:
