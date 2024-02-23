@@ -44,7 +44,7 @@ class BuildNumMode(enum.Enum):
 	RESET = 3
 
 
-def edit_build_number(mode: BuildNumMode) -> tuple[Optional[int], Optional[int]]:
+def edit_build_number(mode: BuildNumMode, use_major: bool) -> tuple[Optional[int], Optional[int]]:
 	new_lines: list[str] = []
 	old_buildnum: Optional[int] = None
 	new_buildnum: Optional[int] = None
@@ -54,9 +54,17 @@ def edit_build_number(mode: BuildNumMode) -> tuple[Optional[int], Optional[int]]
 
 	with open("PKGBUILD", "r") as pkgbuild:
 		for line_idx, line in enumerate(pkgbuild.read().splitlines()):
-			if (m := re.fullmatch(r"pkgrel\+=\"(?:\.(\d+))?\"", line)) is not None:
+			if use_major:
+				pat = r"pkgrel=(\d+)"
+			else:
+				pat = r"pkgrel\+=\"(?:\.(\d+))?\""
+
+			if (m := re.fullmatch(pat, line)) is not None:
 				if (buildnum := m.groups()[0]) is None:
 					# it was empty (pkgrel+=""), so make it .1
+					# (this should not happen for major pkgrel -- we should always find it)
+					assert not use_major
+
 					if mode in [BuildNumMode.INCREMENT, BuildNumMode.RESET]:
 						new_lines.append('pkgrel+=".1"')
 						new_buildnum = 1
@@ -71,7 +79,11 @@ def edit_build_number(mode: BuildNumMode) -> tuple[Optional[int], Optional[int]]
 					else:
 						msg.error_and_exit("?!")
 
-					new_lines.append(f'pkgrel+=".{new_buildnum}"')
+					if use_major:
+						new_lines.append(f'pkgrel={new_buildnum}')
+					else:
+						new_lines.append(f'pkgrel+=".{new_buildnum}"')
+
 				found_buildnum = True
 
 			else:
@@ -79,7 +91,11 @@ def edit_build_number(mode: BuildNumMode) -> tuple[Optional[int], Optional[int]]
 				if line.startswith("pkgrel="):
 					pkgrel_line_idx = line_idx
 
+	if use_major and not found_buildnum:
+		msg.error_and_exit(f"Malformed PKGBUILD: missing `pkgrel` specification")
+
 	if (mode in [BuildNumMode.INCREMENT, BuildNumMode.RESET]) and not found_buildnum:
+		assert not use_major
 		assert pkgrel_line_idx is not None
 		new_lines = new_lines[:1 + pkgrel_line_idx] + ['pkgrel+=".1"'] + new_lines[1 + pkgrel_line_idx:]
 
@@ -110,6 +126,7 @@ def makepkg(
     confirm: bool = True,
 ):
 	conn = PackageBuilder(use_sandbox)
+	untracked_package: bool = False
 
 	args: list[str] = []
 	if not check:
@@ -121,8 +138,17 @@ def makepkg(
 		if not os.path.exists("PKGBUILD"):
 			msg.error_and_exit(f"Could not find PKGBUILD in the current directory")
 
-		msg.log2(f"Updating build number: ", end='')
-		(old_buildnum, new_buildnum) = edit_build_number(BuildNumMode.INCREMENT)
+		if os.path.exists(PMDIFF_JSON_FILE):
+			with open(PMDIFF_JSON_FILE, "r") as x:
+				pmdiff = json.load(x)
+
+			# if the package is untracked (ie. not from upstream), then we
+			# should just update the pkgrel integer directly rather than do the +=".1" thing.
+			if pmdiff.get("untracked", False):
+				untracked_package = True
+
+		msg.log2(f"Updating {'pkgrel' if untracked_package else 'build number'}: ", end='')
+		(old_buildnum, new_buildnum) = edit_build_number(BuildNumMode.INCREMENT, use_major=untracked_package)
 
 		if old_buildnum:
 			print(f"{msg.GREY}{old_buildnum}{msg.ALL_OFF} -> {msg.GREEN}{new_buildnum or 1}{msg.ALL_OFF}")
@@ -131,8 +157,8 @@ def makepkg(
 
 	def rollback_buildnum():
 		if update_buildnum:
-			msg.log2(f"Rolling back build number: ", end='')
-			(old_buildnum, new_buildnum) = edit_build_number(BuildNumMode.DECREMENT)
+			msg.log2(f"Rolling back {'pkgrel' if untracked_package else 'build number'}: ", end='')
+			(old_buildnum, new_buildnum) = edit_build_number(BuildNumMode.DECREMENT, use_major=untracked_package)
 			if old_buildnum:
 				print(f"{msg.RED}{new_buildnum}{msg.ALL_OFF} <- {msg.GREY}{old_buildnum or 1}{msg.ALL_OFF}")
 			else:

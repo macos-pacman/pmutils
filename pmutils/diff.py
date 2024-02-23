@@ -125,7 +125,7 @@ class PmDiffFile:
 				return None
 
 			return PmDiffFile(
-			    upstream_commit=j["upstream_commit"],
+			    upstream_commit=j.get("upstream_commit", None),
 			    diff_files=list(map(str, j.get("diff_files", []))),
 			    clean_files=list(map(str, j.get("clean_files", []))),
 			    ignore_files=list(set(map(str, j.get("ignore_files", []))) | set(DEFAULT_IGNORE_FILES))
