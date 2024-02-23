@@ -13,3 +13,4 @@ __pycache__
 /selenium-venv
 *.ipsw
 *.img
+/venv2

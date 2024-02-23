@@ -1,6 +1,6 @@
 # makefile
 
-CXXFLAGS = -Wall -Wextra -O2 # -fsanitize=address
+CXXFLAGS = -Wall -Wextra -O2 -std=c++20 # -fsanitize=address
 WARNINGS = -Wno-unused-function
 LIBS = -framework AppKit -framework Virtualization -framework Carbon -fobjc-arc -fobjc-link-runtime -lc++abi
 CXX = clang++
