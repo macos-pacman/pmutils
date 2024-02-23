@@ -224,7 +224,7 @@ class Database:
 			return Database(db_path, [])
 
 		ret = Database(db_path, []).reload_from_file()
-		msg.log(f"Loaded {len(ret._packages)} package{'' if len(ret._packages) == 1 else 's'} from {db_path}")
+		# msg.log(f"Loaded {len(ret._packages)} package{'' if len(ret._packages) == 1 else 's'} from {db_path}")
 
 		return ret
 

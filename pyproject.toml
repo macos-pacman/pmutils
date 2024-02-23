@@ -4,12 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pmutils"
-version = "0.5.5"
+version = "0.6.0"
 authors = [{name="zhiayang", email="zhiayang@nowhere.place" }]
 description = "Package management utilities"
 readme = "README.md"
-dependencies = ["requests", "click", "aiohttp", "pyalpm", "tqdm", "zstandard"]
 requires-python = ">=3.10"
+dependencies = ["requests",
+                "click",
+                "aiohttp",
+                "pyalpm",
+                "tqdm",
+                "zstandard",
+                "fabric"]
 
 [tool.setuptools.packages.find]
 exclude = ["vmhelper"]

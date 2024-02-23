@@ -4,6 +4,7 @@
 
 import os
 import re
+import pty
 import time
 import json
 import shutil
@@ -22,7 +23,7 @@ from pmutils.config import config
 
 _vmhelper_path: str = ""
 
-PREFIX = "/opt/pacman"
+PREFIX = os.path.normpath(f"{os.path.dirname(str(shutil.which('pacman')))}/../../")
 DEFAULT_PASSWORD = "password"
 
 
@@ -44,7 +45,7 @@ def get_mac_model_id() -> str:
 	return json.loads(p.stdout)["SPHardwareDataType"][0]["machine_model"]
 
 
-def _clean_mac_addr(mac: str) -> str:
+def clean_mac_addr(mac: str) -> str:
 	return ':'.join(map(lambda x: (x if len(x) == 2 else f"0{x}"), mac.split(':')))
 
 
@@ -100,18 +101,21 @@ class VMSandBox:
 	ip: Optional[str]
 	user: str
 	stopped: bool = False
+	owned: bool = False
 
-	def __init__(self, vmhelper: subprocess.Popen[bytes], bundle_path: str, mac_addr: str):
+	def __init__(self, vmhelper: subprocess.Popen[bytes], bundle_path: str, mac_addr: str, owned: bool):
 		# most of the things are handled by the vmhelper, nothing much for us to do
 		self.bundle = bundle_path
-		self.mac_addr = mac_addr
+		self.mac_addr = clean_mac_addr(mac_addr)
 		self.vmhelper = vmhelper
 		self.ip = None
+		self.owned = owned
 		self.user = config().sandbox.username
 		atexit.register(lambda: self.__del__())
 
 	def __del__(self):
-		self.vmhelper.send_signal(signal.SIGINT)
+		if self.owned:
+			self.vmhelper.send_signal(signal.SIGINT)
 
 	def stop(self, wait: bool = True):
 		msg.log("Stopping VM...")
@@ -140,12 +144,11 @@ class VMSandBox:
 	def wait(self):
 		self.vmhelper.wait()
 
-	@classmethod
-	def start(cls, bundle_path: str, gui: bool) -> Optional[Self]:
-		if not os.path.exists(bundle_path) or not os.path.isdir(bundle_path):
-			msg.error(f"Sandbox bundle path {bundle_path} does not exist")
-			return None
+	def is_owned(self) -> bool:
+		return self.owned
 
+	@classmethod
+	def get_mac_address(cls, bundle_path: str) -> Optional[str]:
 		# load the json and extract the mac address
 		cfg_path = os.path.join(bundle_path, "config.json")
 		if not os.path.exists(cfg_path):
@@ -153,7 +156,17 @@ class VMSandBox:
 			return None
 
 		cfg = json.loads(open(os.path.join(bundle_path, "config.json"), "r").read())
-		mac_address = _clean_mac_addr(cfg["mac_address"])
+		return clean_mac_addr(cfg["mac_address"])
+
+	@classmethod
+	def start(cls, bundle_path: str, gui: bool) -> Optional[Self]:
+		if not os.path.exists(bundle_path) or not os.path.isdir(bundle_path):
+			msg.error(f"Sandbox bundle path {bundle_path} does not exist")
+			return None
+
+		mac_address = cls.get_mac_address(bundle_path)
+		if mac_address is None:
+			return None
 
 		vmhelper = subprocess.Popen(
 		    [
@@ -166,7 +179,7 @@ class VMSandBox:
 		)
 
 		msg.log(f"VM started")
-		return cls(vmhelper, bundle_path, mac_address)
+		return cls(vmhelper, bundle_path, mac_address, owned=True)
 
 	@classmethod
 	def restore(cls, bundle_path: str, ipsw_path: str) -> Optional[Self]:
@@ -181,7 +194,7 @@ class VMSandBox:
 		    ipsw_path,
 		    str(sb_config.cpus),
 		    str(sb_config.ram),
-		    str(60 * 1024 * 1024 * 1024)     # 60gb disk
+		    str(100 * 1024 * 1024 * 1024)    # 100gb disk
 		]).wait()
 
 		if rc != 0:
@@ -197,7 +210,7 @@ class VMSandBox:
 
 		msg.log2(f"If desired, update macOS (within the same major version) after installation finishes")
 
-		msg.log(f"This might take a while, and requires ~60GiB of disk space.")
+		msg.log(f"This might take a while, and requires ~100GiB of disk space.")
 		msg.log(f"Proceed? [Y/n]")
 		if len(resp := input()) > 0 and not resp.lower().startswith('y'):
 			msg.log("Aborting!")
@@ -286,6 +299,9 @@ class VMSandBox:
 
 		msg.log(f"Setting hostname to 'pacman'")
 		cmd(f"sudo systemsetup -setcomputername 'pacman'")
+		cmd(f"sudo scutil --set LocalHostName 'pacman'")
+		cmd(f"sudo scutil --set ComputerName 'pacman'")
+		cmd(f"sudo scutil --set HostName 'pacman'")
 
 		msg.log(f"Ensuring timezones are the same")
 		host_tz = '/'.join(os.path.realpath('/etc/localtime').split('/')[-2:])
@@ -353,6 +369,10 @@ class VMSandBox:
 		else:
 			msg.log(f"Xcode CLT already installed")
 
+		msg.log(f"Enabling Developer Mode")
+		cmd(f"sudo DevToolsSecurity -enable")
+		cmd(f"sudo security authorizationdb write system.privilege.taskport allow")
+
 		msg.log(f"Bootstrapping Pacman")
 
 		script_url = "https://raw.githubusercontent.com/macos-pacman/core/master/bootstrap/bootstrap.sh"
@@ -362,16 +382,19 @@ class VMSandBox:
 		if cmd(f"yes | /bin/sh /tmp/bootstrap.sh")[1] != 0:
 			return False
 
-		msg.log2(f"Re-installing base packages")
-		cmd(f"PATH={PREFIX}/usr/bin:$PATH sudo -E {PREFIX}/usr/bin/pacman -S --noconfirm --overwrite '/*' pacman")
+		cmd(f"mv -f {PREFIX}/etc/pacman.conf{{.pacnew,}} || true", capture=True)
+		cmd(f"mv -f {PREFIX}/etc/makepkg.conf{{.pacnew,}} || true", capture=True)
 
-		cmd(f"mv {PREFIX}/etc/pacman.conf{{.pacnew,}} || true", capture=True)
-		cmd(f"mv {PREFIX}/etc/makepkg.conf{{.pacnew,}} || true", capture=True)
+		# set the packager
+		cmd(f"echo 'PACKAGER=\"macos-pacman-bot <bot@macos-pacman>\"' > ~/.makepkg.conf")
 
 		# ok, now bash should be installed, and everything should work (including the paths)...
 		# running `pacman` itself should just work.
 
 		msg.log(f"Done!")
+		msg.log(f"Additionally installing GNU nano because pico is unusable")
+		cmd(f"sudo pacman -S --noconfirm nano")
+
 		msg.log(f"Installed packages:")
 		self.send_command(f"pacman -Q")
 
@@ -408,18 +431,22 @@ class VMSandBox:
 		else:
 			return ("", p.returncode)
 
-	def get_ip(self) -> Optional[str]:
+	@staticmethod
+	def get_ip_from_mac(mac: str) -> Optional[str]:
 		for line in subprocess.check_output(["arp", "-a"], text=True).splitlines():
 			pat = r"\(([A-Fa-f0-9\.:]+)\) at ((?:[0-9A-Fa-f]{1,2}:){5}[0-9A-Fa-f]{1,2})"
 			if (m := re.search(pat, line)) is not None:
 				if len(m.groups()) != 2:
 					continue
 
-				if _clean_mac_addr(m.groups()[1]) == self.mac_addr:
-					msg.log(f"VM IP address: {m.groups()[0]}")
-					self.ip = m.groups()[0]
-					break
+				if clean_mac_addr(m.groups()[1]) == mac:
+					msg.log(f"VM IP address: {msg.PINK}{m.groups()[0]}{msg.ALL_OFF}")
+					return m.groups()[0]
 
+		return None
+
+	def get_ip(self) -> Optional[str]:
+		self.ip = self.get_ip_from_mac(self.mac_addr)
 		return self.ip
 
 
@@ -482,6 +509,20 @@ def load_or_create_sandbox(gui: bool,
 
 	# check if there is a `vm.bundle` in there
 	bundle_path = os.path.join(sandbox_path, "vm.bundle")
+
+	# check if the rm is running
+	if os.path.exists(os.path.join(bundle_path, ".vm-running")):
+		if gui or restore:
+			msg.error_and_exit(f"Cannot restore or open GUI on a running VM")
+
+		msg.log("Connecting to existing VM")
+		mac_addr = VMSandBox.get_mac_address(bundle_path)
+
+		if mac_addr is None:
+			msg.error_and_exit(f"Could not get MAC address!")
+
+		return VMSandBox(subprocess.Popen(["true"]), bundle_path, mac_addr, owned=False)
+
 	if not os.path.exists(bundle_path) or restore:
 		# make the sandbox path, just in case
 		try:

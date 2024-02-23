@@ -2,6 +2,7 @@
 // Copyright (c) 2024, zhiayang
 // SPDX-License-Identifier: Apache-2.0
 
+#include <signal.h>
 #include <tuple>
 
 #import "common.h"
@@ -55,6 +56,7 @@ static VZVirtualMachine* setup_vm(dispatch_queue_t vm_queue,
 	auto mouse = [[VZUSBScreenCoordinatePointingDeviceConfiguration alloc] init];
 	auto graphics = [[VZMacGraphicsDeviceConfiguration alloc] init];
 
+	// TODO: if running the vm without gui, don't even add a display
 	graphics.displays = @[
 		[[VZMacGraphicsDisplayConfiguration alloc] initWithWidthInPixels:1280 heightInPixels:800 pixelsPerInch:72],
 	];
@@ -166,7 +168,7 @@ static std::tuple<VZVirtualMachine*, VZMacHardwareModel*, VZMacMachineIdentifier
 
 
 
-
+static std::string g_LOCK_FILE_PATH;
 
 constexpr NSString* kCpuCount = @"cpu_count";
 constexpr NSString* kRamSize = @"ram_size";
@@ -192,6 +194,7 @@ constexpr NSString* kMacAddress = @"mac_address";
            macAddress:(VZMACAddress*)macAddr
 {
 	self = [self init];
+	self->bundlePath = bundle;
 	self->cpuCount = cpus;
 	self->ramSize = rams;
 
@@ -242,6 +245,17 @@ constexpr NSString* kMacAddress = @"mac_address";
 
 - (void)start
 {
+	// yeet the lock file after we're gone
+	g_LOCK_FILE_PATH = std::string([self->bundlePath URLByAppendingPathComponent:@".vm-running"].path.UTF8String);
+	signal(SIGINT, [](int) { unlink(g_LOCK_FILE_PATH.c_str()); });
+	signal(SIGTERM, [](int) { unlink(g_LOCK_FILE_PATH.c_str()); });
+
+	// touch the lock file
+	if(int fd = open(g_LOCK_FILE_PATH.c_str(), O_WRONLY | O_CREAT, 0664); fd < 0)
+		error_and_exit("failed to create lock file '{}': {}", g_LOCK_FILE_PATH, strerror(errno));
+	else
+		close(fd);
+
 	dispatch_async(self->queue, ^{
 		if(self->vmHandle.state != VZVirtualMachineStateStopped || not self->vmHandle.canStart)
 		{
@@ -296,11 +310,14 @@ constexpr NSString* kMacAddress = @"mac_address";
 {
 	zpr::println("[log] Waiting for VM to stop...");
 	dispatch_semaphore_wait(self->stopSemaphore, DISPATCH_TIME_FOREVER);
+	unlink(g_LOCK_FILE_PATH.c_str());
 }
 
 - (void)guestDidStopVirtualMachine:(VZVirtualMachine*)vm
 {
 	zpr::println("[log] VM shutdown");
+	unlink(g_LOCK_FILE_PATH.c_str());
+
 	dispatch_semaphore_signal(self->stopSemaphore);
 	dispatch_async(dispatch_get_main_queue(), ^{
 		[NSApp terminate:self]; //

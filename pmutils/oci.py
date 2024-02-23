@@ -15,6 +15,16 @@ from dataclasses import dataclass
 from pmutils import msg, mimes
 from pmutils.version import IVersion
 
+# god damn requests sucks
+from http.client import HTTPConnection
+
+LARGE_BLOCK_SIZE = 256 * 1024
+
+assert HTTPConnection.__init__.__defaults__ is not None
+HTTPConnection.__init__.__defaults__ = tuple(
+    x if x != 8192 else LARGE_BLOCK_SIZE for x in HTTPConnection.__init__.__defaults__
+)
+
 
 class Existence(Enum):
 	NONE = 1

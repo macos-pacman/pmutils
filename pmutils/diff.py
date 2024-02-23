@@ -4,6 +4,7 @@
 
 import os
 import json
+import difflib
 import fnmatch
 import contextlib
 import subprocess
@@ -64,22 +65,36 @@ def _diff_file(repo_url: str, upstream_sha: str, local_path: str) -> Optional[Fi
 	if not os.path.exists(local_path):
 		return FileDiff(name=filename, diff="", upstream=resp.text, new=True)
 
-	# ignore the exit code
-	output = subprocess.run([
-	    "diff", "-Nd", "--unified=0", f"--label={filename}", f"--label={filename}", "-", os.path.normpath(local_path)
-	],
-	                        text=True,
-	                        input=resp.text,
-	                        check=False,
-	                        capture_output=True)
+	local_lines = open(f"{local_path}", "r").readlines()
+	upstream_lines = resp.text.splitlines(keepends=True)
 
-	if output.returncode == 2:
-		msg.warn2(f"Diff produced an error: {output.stderr}")
-		return None
-	elif output.returncode == 0:
-		return FileDiff(name=filename, diff="", upstream=resp.text)
+	# this is a best-effort pain-reducing thing only; you do still need to manually
+	# review the pmdiff to make sure unwanted changes don't appear.
+	# basically, we try not to diff pkgver or pkgrel changes, since that obviously
+	# changes each time.
+	blacklist_fn: Callable[[str], bool] = (lambda x: x.startswith("pkgver=") or x.startswith("pkgrel="))
 
-	return FileDiff(name=filename, diff=output.stdout, upstream=resp.text)
+	upstream_lines = [("\n" if blacklist_fn(l) else l) for l in upstream_lines]
+	local_lines = [("\n" if blacklist_fn(l) else l) for l in local_lines]
+
+	diff = difflib.unified_diff(upstream_lines, local_lines, fromfile=filename, tofile=filename, n=0)
+
+	# # ignore the exit code
+	# output = subprocess.run([
+	#     "diff", "-Nd", "--unified=0", f"--label={filename}", f"--label={filename}", "-", os.path.normpath(local_path)
+	# ],
+	#                         text=True,
+	#                         input=resp.text,
+	#                         check=False,
+	#                         capture_output=True)
+
+	# if output.returncode == 2:
+	# 	msg.warn2(f"Diff produced an error: {output.stderr}")
+	# 	return None
+	# elif output.returncode == 0:
+	# 	return FileDiff(name=filename, diff="", upstream=resp.text)
+
+	return FileDiff(name=filename, diff=''.join(diff), upstream=resp.text)
 
 
 @dataclass
@@ -119,13 +134,15 @@ class PmDiffFile:
 	def save(self, path: str = PMDIFF_JSON_FILE):
 		with open(path, "w") as f:
 			f.write(
-			    json.dumps({
-			        "upstream_commit": self.upstream_commit,
-			        "diff_files": self.diff_files,
-			        "clean_files": self.clean_files,
-			        "ignore_files": self.ignore_files,
-			    },
-			               indent=2)
+			    json.dumps(
+			        {
+			            "upstream_commit": self.upstream_commit,
+			            "diff_files": self.diff_files,
+			            "clean_files": self.clean_files,
+			            "ignore_files": self.ignore_files,
+			        },
+			        indent=2,
+			    )
 			)
 
 
@@ -241,54 +258,14 @@ def diff_package(
 		if commit:
 			try:
 				# see if there are changes at all
-				if subprocess.check_output(["git", "status", "--porcelain", "."], text=True).strip() != "":
+				if subprocess.check_output(["git", "status", "--porcelain", pkg_path], text=True).strip() != "":
 					# note: we are still in the pkg directory.
 					msg.log2(f"Commiting changes")
-					subprocess.check_call(["git", "add", "-A", "."])
+					subprocess.check_call(["git", "add", pkg_path])
 					subprocess.check_call(["git", "commit", "-qam", f"{pkgbase}: update to {ver}"])
 				else:
 					msg.log2(f"No changes to commit")
 			except:
 				msg.warn2(f"Commit failed!")
-
-	return True
-
-
-def fetch_upstream_package(root_dir: str, pkg_name: str, force: bool) -> bool:
-	msg.log(f"Fetching {pkg_name}")
-
-	pkg_dir = f"{root_dir}/{pkg_name}"
-	if not force and os.path.exists(f"{pkg_dir}"):
-		msg.error2(f"Path '{pkg_dir}' already exists!")
-		return False
-
-	os.makedirs(f"{pkg_dir}", exist_ok=force)
-
-	PKG_URL = urlparse.quote(f"{PACKAGE_NAMESPACE}/{pkg_name}", safe='')
-	REPO_URL = f"{UPSTREAM_URL_BASE}/api/v4/projects/{PKG_URL}/repository"
-
-	if (r := req.get(f"{REPO_URL}/commits/main")).status_code != 200:
-		msg.error2(f"Failed to get commit hash: {r.text}")
-		return False
-
-	commit_sha = cast(dict[str, str], r.json())["id"]
-	msg.log2(f"Commit: {commit_sha}")
-
-	with contextlib.chdir(pkg_dir) as _:
-		if (files := get_file_list(REPO_URL, DEFAULT_IGNORE_FILES, commit_sha)) is None:
-			return False
-
-		for file in files:
-			msg.log2(f"{file[0]}")
-			resp = req.get(f"{REPO_URL}/blobs/{file[1]}/raw")
-
-			if resp.status_code != 200:
-				msg.error2(f"Could not fetch file content: {resp.text}")
-				return False
-
-			with open(file[0], "w") as f:
-				f.write(resp.text)
-
-		PmDiffFile(commit_sha, [], [], DEFAULT_IGNORE_FILES).save()
 
 	return True

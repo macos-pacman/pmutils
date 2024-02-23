@@ -22,27 +22,39 @@ UploadQueue = Queue[Optional[tuple[str, BytesIO, int, int]]]
 
 BUNDLE_MANIFEST_NAME = "macos-sandbox-vm"
 BLOB_SIZE = 512 * 1024 * 1024
-MAX_PENDING_UPLOADS = 20
-NUM_UPLOAD_THREADS = 2
+MAX_PENDING_UPLOADS = 30
+NUM_UPLOAD_THREADS = 4
 
 TARFILE_CHUNK_SIZE = 8 * 1024 * 1024
 ZSTD_COMPRESSION_LEVEL = 18
 ZSTD_NUM_THREADS = 4
 
 
-class AtomicInt:
-	value: int
+class BarOffsetAllocator:
+	slots: list[bool]
+	overflow: int
 	lock: Lock
 
-	def __init__(self, value: int = 0):
-		self.value = value
+	def __init__(self, slots: int):
+		self.slots = [True] * slots
+		self.overflow = 0
 		self.lock = Lock()
 
-	def fetch_add(self) -> int:
+	def get_slot(self) -> int:
 		with self.lock as _:
-			ret = self.value
-			self.value += 1
-			return ret
+			for i in range(len(self.slots)):
+				if self.slots[i]:
+					self.slots[i] = False
+					return i
+
+			self.overflow += 1
+			return (self.overflow - 1) + len(self.slots)
+
+	def release_slot(self, slot: int) -> None:
+		with self.lock as _:
+			if slot < len(self.slots):
+				self.slots[slot] = True
+				self.overflow = 0
 
 
 def _make_bar(desc: str, *, loglevel: int, data: Optional[BytesIO] = None, **kwargs: Any) -> tuple[Any, Any]:
@@ -85,6 +97,7 @@ class ZstdCompressionStreamer(IO[bytes]):
 	_bar_fmt: str
 	_blob_idx: int
 	_queue: UploadQueue
+	_closed: bool
 
 	def __init__(self, output_queue: UploadQueue, bar: Any):
 		self._z = zstd.ZstdCompressor(level=ZSTD_COMPRESSION_LEVEL, threads=ZSTD_NUM_THREADS)
@@ -95,6 +108,7 @@ class ZstdCompressionStreamer(IO[bytes]):
 		self._bar_fmt = "Compressing (blob #{}, q: {})"
 		self._queue = output_queue
 		self._blob_idx = 0
+		self._closed = False
 
 		self._bar = bar
 		self._bar.set_description_str(msg.slog2(self._bar_fmt.format(self._blob_idx + 1, self._queue.qsize())))
@@ -114,8 +128,14 @@ class ZstdCompressionStreamer(IO[bytes]):
 		return len(s)
 
 	def close(self):
+		if self._closed:
+			return
+
+		msg.log2("Uploading final block(s)...")
 		for _blob in self._c.finish():
 			self.upload_blob(cast(bytes, _blob))
+
+		self._closed = True
 
 
 def get_tarinfos(prefix: str, path: str, bar: Any) -> list[tuple[tarfile.TarInfo, BinaryIO]]:
@@ -137,19 +157,20 @@ def get_tarinfos(prefix: str, path: str, bar: Any) -> list[tuple[tarfile.TarInfo
 	return ret
 
 
-def upload_func(ociw: oci.OciWrapper, queue: UploadQueue, bar_offset: AtomicInt):
+def upload_func(ociw: oci.OciWrapper, queue: UploadQueue, bar_offset: BarOffsetAllocator):
 	try:
 		while (work := queue.get()) is not None:
 			retries = 0
 			while True:
 				try:
 					digest, blob, size, _blob_idx = work
+					slot = bar_offset.get_slot()
 					(bar, blob_io) = _make_bar(
 					    f"Uploading blob #{_blob_idx+1}",
 					    loglevel=3,
 					    data=blob,
 					    total=size,
-					    position=1 + (bar_offset.fetch_add() % 2),
+					    position=1 + slot,
 					    leave=None,
 					    delay=1,
 					)
@@ -157,6 +178,7 @@ def upload_func(ociw: oci.OciWrapper, queue: UploadQueue, bar_offset: AtomicInt)
 					if ociw.upload_blob(ociw.make_namespace(for_package=BUNDLE_MANIFEST_NAME), digest, blob_io):
 						bar.refresh()
 
+					bar_offset.release_slot(slot)
 					bar.close()
 					break
 
@@ -205,7 +227,7 @@ def upload_bundle():
 	ociw = oci.OciWrapper(cfg.registry.url(), repo.remote, oauth_token)
 
 	upload_queue: UploadQueue = Queue(maxsize=MAX_PENDING_UPLOADS)
-	bar_offset = AtomicInt()
+	bar_offset = BarOffsetAllocator(NUM_UPLOAD_THREADS)
 
 	workers: list[Thread] = [
 	    Thread(
@@ -226,7 +248,6 @@ def upload_bundle():
 			for tf, file in get_tarinfos("vm.bundle", bundle_path, bar):
 				with file as f:
 					tar.addfile(tf, cast(IO[bytes], tqdm_utils.CallbackIOWrapper(bar.update, f, method="read")))
-
 	except:
 		interrupted = True
 		bar.close()
@@ -240,6 +261,10 @@ def upload_bundle():
 
 		print("\n\n")
 		msg.warn("Waiting for any in-progress uploads to finish")
+
+	if not interrupted:
+		bar.close()
+		zcmp.close()
 
 	# here, the tarfile should be closed -- so the zcmp should be as well.
 	upload_queue.put(None)
@@ -266,4 +291,3 @@ def upload_bundle():
 # TODO
 def download_bundle():
 	msg.error_and_exit("Not implemented yet, oops!")
-	pass

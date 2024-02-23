@@ -11,6 +11,7 @@ import subprocess as sp
 from typing import *
 from pmutils import msg
 from pmutils.registry import Registry
+from pmutils.makepkg import PackageBuilder
 
 
 def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
@@ -24,7 +25,9 @@ def exit_virtual_environment(args: dict[str, str]) -> dict[str, str]:
 
 	env.pop("VIRTUAL_ENV")
 	env.pop("VIRTUAL_ENV_PROMPT")
-	env.pop("_OLD_VIRTUAL_PATH")
+
+	if "_OLD_VIRTUAL_PATH" in env:
+		env.pop("_OLD_VIRTUAL_PATH")
 
 	# edit the path
 	new_path = ':'.join(filter(lambda x: x != f"{venv}/bin", env["PATH"].split(':')))
@@ -88,8 +91,12 @@ def makepkg(
     allow_downgrade: bool,
     update_buildnum: bool,
     use_sandbox: bool,
+    sandbox_folder: Optional[str],
+    sandbox_keep: bool,
     confirm: bool = True,
 ):
+	conn = PackageBuilder(use_sandbox)
+
 	args: list[str] = []
 	if not check:
 		args += ["--nocheck"]
@@ -100,65 +107,75 @@ def makepkg(
 		if not os.path.exists("PKGBUILD"):
 			msg.error_and_exit(f"Could not find PKGBUILD in the current directory")
 
+		msg.log2(f"Updating build number: ", end='')
 		(old_buildnum, new_buildnum) = edit_build_number(increment=True)
 
-		msg.log2(f"Updating build number: ", end='')
 		if old_buildnum:
 			print(f"{msg.GREY}{old_buildnum}{msg.ALL_OFF} -> {msg.GREEN}{new_buildnum or 1}{msg.ALL_OFF}")
 		else:
 			print(f"{msg.GREEN}{new_buildnum or 1}{msg.ALL_OFF}")
 
-	with tempfile.TemporaryDirectory() as tmp:
-		env = exit_virtual_environment(dict(os.environ))
-		env["PKGDEST"] = tmp
-
-		args += [f"PKGDEST={tmp}"]
-		try:
-			sp.check_call(["makepkg", "-f", *args], env=env)
-		except:
-			# rollback the build num
-			msg.error("Failed to build package!")
-			if update_buildnum:
-				msg.log2(f"Rolling back build number: ", end='')
-				(old_buildnum, new_buildnum) = edit_build_number(increment=False)
-				if old_buildnum:
-					print(f"{msg.RED}{new_buildnum}{msg.ALL_OFF} <- {msg.GREY}{old_buildnum or 1}{msg.ALL_OFF}")
-				else:
-					print(f"{msg.RED}{new_buildnum or 1}{msg.ALL_OFF}")
-			sys.exit(1)
-
-		packages: list[str] = []
-		for pkg in os.listdir(tmp):
-			if pkg.endswith(".pkg.tar.zst"):
-				packages.append(pkg)
-
-		if database is not None:
-			repo = registry.get_repository(database)
-			if repo is None:
-				msg.error(f"Repository {repo} does not exist")
+	def rollback_buildnum():
+		if update_buildnum:
+			msg.log2(f"Rolling back build number: ", end='')
+			(old_buildnum, new_buildnum) = edit_build_number(increment=False)
+			if old_buildnum:
+				print(f"{msg.RED}{new_buildnum}{msg.ALL_OFF} <- {msg.GREY}{old_buildnum or 1}{msg.ALL_OFF}")
 			else:
-				with msg.Indent():
-					for pkg in packages:
-						repo.database.add(f"{tmp}/{pkg}", verbose=True, allow_downgrade=allow_downgrade)
+				print(f"{msg.RED}{new_buildnum or 1}{msg.ALL_OFF}")
 
-				if upload:
-					repo.sync()
+	# now that the buildnum has been updated, wrap the whole thing in a try-except
+	# so we rollback in case of *any* problem.
+	try:
+		env = exit_virtual_environment(dict(os.environ))
+		with tempfile.TemporaryDirectory() as tmp:
+			packages = conn.makepkg(
+			    args,
+			    env=env,
+			    pkgdest=tmp,
+			    check=check,
+			    sandbox_folder=sandbox_folder,
+			    sandbox_keep=sandbox_keep,
+			)
 
-		if install:
-			msg.log("Installing package(s)")
-			try:
-				sp.check_call([
-				    "sudo",
-				    "pacman",
-				    *([] if confirm else ["--noconfirm"]),
-				    "-U",
-				    *[f"{tmp}/{x}" for x in packages],
-				])
-			except:
-				msg.error_and_exit("Failed to install package!")
+			if packages is None:
+				msg.error("Failed to build package!")
+				rollback_buildnum()
+				sys.exit(1)
 
-		# if we're keeping, move them somewhere that's not the temp dir
-		if keep:
-			msg.log("Moving package(s) to /pm/pkgs")
-			for pkg in packages:
-				os.rename(f"{tmp}/{pkg}", f"/pm/pkgs/{os.path.basename(pkg)}")
+			msg.log(f"Successfully built {len(packages)} package{'' if len(packages) == 1 else 's'}")
+
+			if database is not None:
+				repo = registry.get_repository(database)
+				if repo is None:
+					msg.error(f"Repository {repo} does not exist")
+				else:
+					with msg.Indent():
+						for pkg in packages:
+							repo.database.add(f"{tmp}/{pkg}", verbose=True, allow_downgrade=allow_downgrade)
+
+					if upload:
+						repo.sync()
+
+			if install:
+				msg.log("Installing package(s)")
+				try:
+					sp.check_call([
+					    "sudo",
+					    "pacman",
+					    *([] if confirm else ["--noconfirm"]),
+					    "-U",
+					    *[f"{tmp}/{x}" for x in packages],
+					])
+				except:
+					msg.error_and_exit("Failed to install package!")
+
+			# if we're keeping, move them somewhere that's not the temp dir
+			if keep:
+				msg.log("Moving package(s) to /pm/pkgs")
+				for pkg in packages:
+					os.rename(f"{tmp}/{pkg}", f"/pm/pkgs/{os.path.basename(pkg)}")
+
+	except KeyboardInterrupt:
+		rollback_buildnum()
+		msg.error_and_exit("Aborted!")

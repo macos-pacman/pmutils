@@ -11,7 +11,7 @@ import importlib.metadata as im
 
 from typing import *
 from pmutils.config import Config, config
-from pmutils import msg, build, check, upstream, rebase, vm
+from pmutils import msg, build, check, diff, fetch, rebase, vm
 from pmutils.registry import Registry, Repository
 
 DEFAULT_CONFIG = "config.toml"
@@ -166,7 +166,7 @@ def cmd_fetch(ctx: Any, package: list[str], repo: Optional[str], force: bool):
 		msg.error_and_exit(f"`root-dir` not configured for repository, cannot fetch")
 
 	for pkg in package:
-		upstream.fetch_upstream_package(root_dir=r.root_dir, pkg_name=pkg, force=force)
+		fetch.fetch_upstream_package(root_dir=r.root_dir, pkg_name=pkg, force=force)
 
 	msg.log("Done")
 
@@ -192,7 +192,7 @@ def cmd_diff(package: list[click.Path], force: bool, fetch: bool, update: bool, 
 			msg.log2(f"Skipping folder '{file}' with no PKGBUILD")
 			continue
 
-		upstream.diff_package(file, force=force, keep_old=keep, fetch_latest=fetch, update_local=update, commit=commit)
+		diff.diff_package(file, force=force, keep_old=keep, fetch_latest=fetch, update_local=update, commit=commit)
 
 	msg.log("Done")
 
@@ -337,6 +337,10 @@ def cmd_rebase(
 @click.option("-k", "--keep", is_flag=True, help="Keep the package after building it")
 @click.option("-d", "--delete", is_flag=True, help="Delete the package after building it")
 @click.option("--sandbox/--no-sandbox", is_flag=True, default=True, help="Use the VM Sandbox to build packages")
+@click.option(
+    "--sandbox-folder", type=str, default=None, metavar="FOLDER", help="Use FOLDER as the build folder in the sandbox"
+)
+@click.option("--sandbox-keep", is_flag=True, default=False, help="Keep the remote build folder even if build succeeds")
 @click.argument("directory", required=False, nargs=1, type=click.Path(exists=True, dir_okay=True))
 def cmd_build(
     ctx: Any,
@@ -352,6 +356,8 @@ def cmd_build(
     allow_downgrade: bool,
     buildnum: bool,
     sandbox: bool,
+    sandbox_folder: Optional[str],
+    sandbox_keep: bool,
 ):
 	if keep and delete:
 		msg.error_and_exit(f"`--keep` and `--delete` cannot be used together")
@@ -361,6 +367,9 @@ def cmd_build(
 
 	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
 		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
+
+	if not sandbox and sandbox_folder:
+		msg.error_and_exit(f"`--sandbox-folder` requires `--sandbox`")
 
 	# if keep and delete were both false, then it's "auto":
 	# keep if we are not adding, delete if we are.
@@ -383,6 +392,8 @@ def cmd_build(
 		    allow_downgrade=allow_downgrade,
 		    update_buildnum=buildnum,
 		    use_sandbox=sandbox,
+		    sandbox_folder=sandbox_folder,
+		    sandbox_keep=sandbox_keep,
 		)
 
 	msg.log("Done")
@@ -396,10 +407,17 @@ def cmd_build(
 @click.option("--bootstrap", is_flag=True, default=False, help="Perform Pacman bootstrapping")
 @click.option("--ipsw", required=False, metavar="IPSW", help="The path to a local IPSW file to use for restoring")
 @click.pass_context
-def cmd_sandbox(ctx: Any, gui: bool, restore: bool, bootstrap: bool, upload: bool, download: bool, ipsw: Optional[str]):
+def cmd_sandbox(
+    ctx: Any,
+    gui: bool,
+    restore: bool,
+    bootstrap: bool,
+    upload: bool,
+    download: bool,
+    ipsw: Optional[str],
+):
 	if upload and download:
 		msg.error_and_exit(f"`--upload` and `--download` cannot be used together")
-
 	elif (upload or download) and (gui or restore or bootstrap or ipsw):
 		msg.error_and_exit(f"`--upload` and `--download` must be used alone (without other options)")
 
@@ -409,7 +427,8 @@ def cmd_sandbox(ctx: Any, gui: bool, restore: bool, bootstrap: bool, upload: boo
 	elif download:
 		vm.remote.download_bundle()
 	else:
-		if (vz := vm.run.load_or_create_sandbox(gui=gui, restore=restore, bootstrap=bootstrap, ipsw_path=ipsw)) is None:
+		vz = vm.manager.load_or_create_sandbox(gui=gui, restore=restore, bootstrap=bootstrap, ipsw_path=ipsw)
+		if vz is None:
 			return
 
 		# wait till we get sigwait, then exit.
