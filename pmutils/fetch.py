@@ -19,8 +19,6 @@ def fetch_upstream_package(root_dir: str, pkg_name: str, force: bool) -> bool:
 		msg.error2(f"Path '{pkg_dir}' already exists!")
 		return False
 
-	os.makedirs(f"{pkg_dir}", exist_ok=force)
-
 	PKG_URL = urlparse.quote(f"{diff.PACKAGE_NAMESPACE}/{pkg_name}", safe='')
 	REPO_URL = f"{diff.UPSTREAM_URL_BASE}/api/v4/projects/{PKG_URL}/repository"
 
@@ -31,6 +29,7 @@ def fetch_upstream_package(root_dir: str, pkg_name: str, force: bool) -> bool:
 	commit_sha = cast(dict[str, str], r.json())["id"]
 	msg.log2(f"Commit: {commit_sha}")
 
+	os.makedirs(f"{pkg_dir}", exist_ok=force)
 	with contextlib.chdir(pkg_dir) as _:
 		if (files := diff.get_file_list(REPO_URL, diff.DEFAULT_IGNORE_FILES, commit_sha)) is None:
 			return False
