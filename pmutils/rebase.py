@@ -101,8 +101,10 @@ def rebase_package(
 	new_ver = new_srcinfo.version()
 	old_ver = local_srcinfo.version()
 	if new_ver < old_ver:
-		msg.warn2(f"Upstream version '{new_ver}' is " + \
-                                                               f"older than local '{old_ver}'{' (not installing)' if install_pkg else ''}")
+		msg.warn2(
+		    f"Upstream version '{new_ver}' is "
+		    + f"older than local '{old_ver}'{' (not installing)' if install_pkg else ''}"
+		)
 
 		install_pkg = False
 	elif old_ver == new_ver:
@@ -119,7 +121,7 @@ def rebase_package(
 				if subprocess.check_output(["git", "status", "--porcelain", "."], text=True).strip() != "":
 					# note: we are still in the pkg directory.
 					msg.log2(f"Commiting changes")
-					subprocess.check_call(["git", "add", "-A", "."])
+					subprocess.check_call(["git", "add", "."])
 					subprocess.check_call(["git", "commit", "-qam", f"{pkgname}: update to {new_ver}"])
 				else:
 					msg.log2(f"No changes to commit")
