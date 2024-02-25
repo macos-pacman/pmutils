@@ -137,9 +137,9 @@ class PmDiffFile:
 			    json.dumps(
 			        {
 			            "upstream_commit": self.upstream_commit,
-			            "diff_files": self.diff_files,
-			            "clean_files": self.clean_files,
-			            "ignore_files": self.ignore_files,
+			            "diff_files": sorted(self.diff_files),
+			            "clean_files": sorted(self.clean_files),
+			            "ignore_files": sorted(self.ignore_files),
 			        },
 			        indent=2,
 			    )
