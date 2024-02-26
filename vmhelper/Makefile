@@ -2,7 +2,7 @@
 
 CXXFLAGS = -Wall -Wextra -O2 -std=c++20 # -fsanitize=address
 WARNINGS = -Wno-unused-function
-LIBS = -framework AppKit -framework Virtualization -framework Carbon -fobjc-arc -fobjc-link-runtime -lc++abi
+LIBS = -framework AppKit -framework Virtualization -framework Carbon -fobjc-arc -fobjc-link-runtime
 CXX = clang++
 
 MM_HEADERS = $(shell find . -iname "*.h" -print)

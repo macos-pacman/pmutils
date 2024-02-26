@@ -178,82 +178,91 @@ class PackageBuilder:
 
 		msg.log(f"Working directory: {tmpdir}")
 
-		msg.log2(f"Copying PKGBUILD")
-		self.copy_to_remote("./PKGBUILD", f"{tmpdir}/")
+		# handle a ^C at this point; delete the build folder unless --sandbox-keep was passed
+		try:
 
-		# copy the local source files (during which we need to figure out which ones are local)
-		msg.log2(f"Copying local source files")
-		for src in [
-		    *srcinfo.fields["source"],
-		    *(srcinfo.fields.get("install", [])),
-		    *[y for x in srcinfo.subpkgs for y in x[1].get("install", [])]
-		]:
-			if "::" in src or "http://" in src or "https://" in src or "git://" in src or "svn://" in src:
-				# remote source
-				continue
+			msg.log2(f"Copying PKGBUILD")
+			self.copy_to_remote("./PKGBUILD", f"{tmpdir}/")
 
-			# local source
-			msg.log3(f"{src}")
-			self.copy_to_remote(f"./{src}", f"{tmpdir}/")
+			# copy the local source files (during which we need to figure out which ones are local)
+			msg.log2(f"Copying local source files")
+			for src in [
+			    *srcinfo.fields["source"],
+			    *(srcinfo.fields.get("install", [])),
+			    *[y for x in srcinfo.subpkgs for y in x[1].get("install", [])]
+			]:
+				if "::" in src or "http://" in src or "https://" in src or "git://" in src or "svn://" in src:
+					# remote source
+					continue
 
-		msg.log(f"Ensuring system is up-to-date")
-		if self.run("sudo pacman --noconfirm -Syu").returncode != 0:
-			return None
+				# local source
+				msg.log3(f"{src}")
+				self.copy_to_remote(f"./{src}", f"{tmpdir}/")
 
-		# check package list
-		before_pkgs = set(map(lambda x: x.strip(), self.run("pacman -Q", capture=True).stdout.splitlines()))
+			msg.log(f"Ensuring system is up-to-date")
+			if self.run("sudo pacman --noconfirm -Syu").returncode != 0:
+				return None
 
-		env_prefix = f"PKGDEST={tmpdir} SRCDEST={srcdest}"
-		makepkg_extra_args = ' '.join([shlex.quote(x) for x in extra_args])
+			# check package list
+			before_pkgs = set(map(lambda x: x.strip(), self.run("pacman -Q", capture=True).stdout.splitlines()))
 
-		ok = self.run(
-		    ';'.join([
-		        f"cd {tmpdir}",
-		        f"{env_prefix} makepkg --noconfirm --nocheck -srf {makepkg_extra_args}",
-		    ])
-		).returncode == 0
+			env_prefix = f"PKGDEST={tmpdir} SRCDEST={srcdest}"
+			makepkg_extra_args = ' '.join([shlex.quote(x) for x in extra_args])
 
-		# if check, check. the reason we do this in 2 steps is to prevent the package
-		# from picking up any of the `checkdepends` and autoconf-ing them into the build.
-		# there should not be any extra burden on the package repos since the stuff we
-		# downloaded from the actual build (though uninstalled) should still be cached.
-		if ok and check:
-			msg.log("Running package checks")
 			ok = self.run(
 			    ';'.join([
 			        f"cd {tmpdir}",
-			        f"{env_prefix} makepkg --noconfirm --check-only -ers {makepkg_extra_args}",
+			        f"{env_prefix} makepkg --noconfirm --nocheck -srf {makepkg_extra_args}",
 			    ])
 			).returncode == 0
 
-		after_pkgs = set(map(lambda x: x.strip(), self.run("pacman -Q", capture=True).stdout.splitlines()))
-		if before_pkgs != after_pkgs:
-			msg.warn("Installed packages changed! (this should not happen)")
+			# if check, check. the reason we do this in 2 steps is to prevent the package
+			# from picking up any of the `checkdepends` and autoconf-ing them into the build.
+			# there should not be any extra burden on the package repos since the stuff we
+			# downloaded from the actual build (though uninstalled) should still be cached.
+			if ok and check:
+				msg.log("Running package checks")
+				ok = self.run(
+				    ';'.join([
+				        f"cd {tmpdir}",
+				        f"{env_prefix} makepkg --noconfirm --check-only -ers {makepkg_extra_args}",
+				    ])
+				).returncode == 0
 
-			new_pkgs = after_pkgs - before_pkgs
-			msg.log2("These packages appeared:")
-			for p in sorted(new_pkgs):
-				msg.log3(f"{p}")
+			after_pkgs = set(map(lambda x: x.strip(), self.run("pacman -Q", capture=True).stdout.splitlines()))
+			if before_pkgs != after_pkgs:
+				msg.warn("Installed packages changed! (this should not happen)")
 
-			gone_pkgs = before_pkgs - after_pkgs
-			msg.log2("These packages disappeared:")
-			for p in sorted(gone_pkgs):
-				msg.log3(f"{p}")
+				new_pkgs = after_pkgs - before_pkgs
+				msg.log2("These packages appeared:")
+				for p in sorted(new_pkgs):
+					msg.log3(f"{p}")
 
-		if not ok:
+				gone_pkgs = before_pkgs - after_pkgs
+				msg.log2("These packages disappeared:")
+				for p in sorted(gone_pkgs):
+					msg.log3(f"{p}")
+
+			if not ok:
+				return None
+
+			# ok now copy all the packages over
+			msg.log(f"Copying build products")
+			built_pkgs = [
+			    s.strip() for s in self.run(f"ls -1 {tmpdir}/*.pkg.tar.zst", capture=True).stdout.splitlines()
+			]
+			for p in built_pkgs:
+				self.copy_from_remote(p, f"{pkgdest}/{os.path.basename(p)}")
+				self.run(f"rm -f {p}")
+
+			return list(map(os.path.basename, built_pkgs))
+
+		except KeyboardInterrupt:
 			return None
 
-		# ok now copy all the packages over
-		msg.log(f"Copying build products")
-		built_pkgs = [s.strip() for s in self.run(f"ls -1 {tmpdir}/*.pkg.tar.zst", capture=True).stdout.splitlines()]
-		for p in built_pkgs:
-			self.copy_from_remote(p, f"{pkgdest}/{os.path.basename(p)}")
-			self.run(f"rm -f {p}")
-
-		if not sandbox_keep:
-			msg.log2(f"Deleting remote build folder")
-			self.run(f"rm -rf {tmpdir}")
-		else:
-			msg.log2(f"Keeping remote build folder: {msg.PINK}{tmpdir}{msg.ALL_OFF}")
-
-		return list(map(os.path.basename, built_pkgs))
+		finally:
+			if not sandbox_keep:
+				msg.log2(f"Deleting remote build folder")
+				self.run(f"rm -rf {tmpdir}")
+			else:
+				msg.log2(f"Keeping remote build folder: {msg.PINK}{tmpdir}{msg.ALL_OFF}")
