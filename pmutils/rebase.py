@@ -122,7 +122,7 @@ def rebase_package(
 					# note: we are still in the pkg directory.
 					msg.log2(f"Commiting changes")
 					subprocess.check_call(["git", "add", "."])
-					subprocess.check_call(["git", "commit", "-qam", f"{pkgname}: update to {new_ver}"])
+					subprocess.check_call(["git", "commit", "-qm", f"{pkgname}: update to {new_ver}"])
 				else:
 					msg.log2(f"No changes to commit")
 			except:
