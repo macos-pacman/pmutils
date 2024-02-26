@@ -176,7 +176,7 @@ class PackageBuilder:
 
 			tmpdir = tmp.stdout.strip()
 
-		msg.log(f"Working directory: {tmpdir}")
+		msg.log(f"Working directory: {msg.PINK}{tmpdir}{msg.ALL_OFF}")
 
 		# handle a ^C at this point; delete the build folder unless --sandbox-keep was passed
 		try:
@@ -258,11 +258,13 @@ class PackageBuilder:
 			return list(map(os.path.basename, built_pkgs))
 
 		except KeyboardInterrupt:
+			# the ^C is annoying
+			print("")
 			return None
 
 		finally:
 			if not sandbox_keep:
-				msg.log2(f"Deleting remote build folder")
+				msg.log(f"Deleting remote build folder")
 				self.run(f"rm -rf {tmpdir}")
 			else:
-				msg.log2(f"Keeping remote build folder: {msg.PINK}{tmpdir}{msg.ALL_OFF}")
+				msg.log(f"Keeping remote build folder: {msg.PINK}{tmpdir}{msg.ALL_OFF}")
