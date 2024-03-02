@@ -79,26 +79,12 @@ def _diff_file(repo_url: str, upstream_sha: str, local_path: str) -> Optional[Fi
 
 	diff = difflib.unified_diff(upstream_lines, local_lines, fromfile=filename, tofile=filename, n=0)
 
-	# # ignore the exit code
-	# output = subprocess.run([
-	#     "diff", "-Nd", "--unified=0", f"--label={filename}", f"--label={filename}", "-", os.path.normpath(local_path)
-	# ],
-	#                         text=True,
-	#                         input=resp.text,
-	#                         check=False,
-	#                         capture_output=True)
-
-	# if output.returncode == 2:
-	# 	msg.warn2(f"Diff produced an error: {output.stderr}")
-	# 	return None
-	# elif output.returncode == 0:
-	# 	return FileDiff(name=filename, diff="", upstream=resp.text)
-
 	return FileDiff(name=filename, diff=''.join(diff), upstream=resp.text)
 
 
 @dataclass
 class PmDiffFile:
+	upstream_pkgname: Optional[str]
 	upstream_commit: str
 	diff_files: list[str]
 	clean_files: list[str]
@@ -125,6 +111,7 @@ class PmDiffFile:
 				return None
 
 			return PmDiffFile(
+			    upstream_pkgname=j.get("upstream_package", None),
 			    upstream_commit=j.get("upstream_commit", None),
 			    diff_files=list(map(str, j.get("diff_files", []))),
 			    clean_files=list(map(str, j.get("clean_files", []))),
@@ -136,17 +123,22 @@ class PmDiffFile:
 			f.write(
 			    json.dumps(
 			        {
-			            "upstream_commit": self.upstream_commit,
-			            "diff_files": sorted(self.diff_files),
-			            "clean_files": sorted(self.clean_files),
-			            "ignore_files": sorted(self.ignore_files),
+			            **{
+			                "upstream_commit": self.upstream_commit,
+			                "diff_files": sorted(self.diff_files),
+			                "clean_files": sorted(self.clean_files),
+			                "ignore_files": sorted(self.ignore_files),
+			            },
+			            **({
+			                "upstream_package": self.upstream_pkgname,
+			            } if self.upstream_pkgname else {})
 			        },
 			        indent=2,
 			    )
 			)
 
 
-def _generator(repo_url: str, ignored_srcs: list[str], commit_sha: Optional[str]):
+def _generator(repo_url: str, ignored_srcs: list[str], commit_sha: Optional[str], upstream_pkg: Optional[str]):
 	if commit_sha is None:
 		if (r := req.get(f"{repo_url}/commits/main")).status_code != 200:
 			msg.error2(f"Failed to get commit hash: {r.text}")
@@ -172,7 +164,10 @@ def _generator(repo_url: str, ignored_srcs: list[str], commit_sha: Optional[str]
 
 		yield (diff, None)
 
-	yield (None, PmDiffFile(commit_sha, diff_files=diff_files, clean_files=clean_files, ignore_files=ignored_srcs))
+	yield (
+	    None,
+	    PmDiffFile(upstream_pkg, commit_sha, diff_files=diff_files, clean_files=clean_files, ignore_files=ignored_srcs),
+	)
 
 
 def diff_package_lazy(
@@ -194,17 +189,21 @@ def diff_package_lazy(
 			msg.warn2(f"Package folder '{pkg_path}' contains uncommited diff files, skipping")
 			return None
 
-		# first get the list of files.
-		PKG_URL = urlparse.quote(f"{PACKAGE_NAMESPACE}/{pkgbase}", safe='')
-		REPO_URL = f"{UPSTREAM_URL_BASE}/api/v4/projects/{PKG_URL}/repository"
+		def get_repo_url(pkgbase: str) -> str:
+			pkg_url = urlparse.quote(f"{PACKAGE_NAMESPACE}/{pkgbase}", safe='')
+			repo_url = f"{UPSTREAM_URL_BASE}/api/v4/projects/{pkg_url}/repository"
+			return repo_url
 
 		if (pmdiff := PmDiffFile.load(f"./{PMDIFF_JSON_FILE}")) is None:
 			msg.log2(f"No {PMDIFF_JSON_FILE}: diffing against latest upstream")
-			return _generator(REPO_URL, DEFAULT_IGNORE_FILES, commit_sha=None)
+
+			repo_url = get_repo_url(pkgbase)
+			return _generator(repo_url, DEFAULT_IGNORE_FILES, commit_sha=None, upstream_pkg=None)
 
 		else:
 			commit = None if fetch_latest else pmdiff.upstream_commit
-			return _generator(REPO_URL, pmdiff.ignore_files, commit_sha=commit)
+			repo_url = get_repo_url(pmdiff.upstream_pkgname or pkgbase)
+			return _generator(repo_url, pmdiff.ignore_files, commit_sha=commit, upstream_pkg=pmdiff.upstream_pkgname)
 
 
 def save_diff(diff: FileDiff, update_local: bool, keep_old: bool):

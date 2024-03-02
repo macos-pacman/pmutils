@@ -134,6 +134,7 @@ def makepkg(
 	if not verify_pgp:
 		args += ["--skippgpcheck"]
 
+	# TODO: update the buildnum after the build succeeds, instead of before then rollback if fail
 	if update_buildnum:
 		if not os.path.exists("PKGBUILD"):
 			msg.error_and_exit(f"Could not find PKGBUILD in the current directory")
