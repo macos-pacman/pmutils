@@ -4,7 +4,6 @@
 
 import os
 import re
-import pty
 import time
 import json
 import shutil
@@ -119,7 +118,7 @@ class VMSandBox:
 
 	def stop(self, wait: bool = True):
 		msg.log("Stopping VM...")
-		if self.ip is not None:
+		if self.ip is not None and (not self.vmhelper.poll()):
 			# every time we stop the vm, update the version number.
 			with open(os.path.join(self.bundle, "config.json"), "r") as c:
 				cfg = json.load(c)
@@ -133,7 +132,7 @@ class VMSandBox:
 				json.dump(cfg, c)
 
 			self.send_command(f"sudo -n shutdown -h now")
-			time.sleep(2)
+			time.sleep(5)
 
 		self.vmhelper.send_signal(signal.SIGINT)
 		if wait:
