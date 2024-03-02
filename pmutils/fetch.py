@@ -45,6 +45,6 @@ def fetch_upstream_package(root_dir: str, pkg_name: str, force: bool) -> bool:
 			with open(file[0], "w") as f:
 				f.write(resp.text)
 
-		diff.PmDiffFile(commit_sha, [], [], diff.DEFAULT_IGNORE_FILES).save()
+		diff.PmDiffFile(commit_sha, [], [], diff.DEFAULT_IGNORE_FILES, None).save()
 
 	return True

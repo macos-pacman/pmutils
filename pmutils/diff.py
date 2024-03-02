@@ -84,11 +84,11 @@ def _diff_file(repo_url: str, upstream_sha: str, local_path: str) -> Optional[Fi
 
 @dataclass
 class PmDiffFile:
-	upstream_pkgname: Optional[str]
 	upstream_commit: str
 	diff_files: list[str]
 	clean_files: list[str]
 	ignore_files: list[str]
+	upstream_package: Optional[str]
 
 	@staticmethod
 	def load(path: str = PMDIFF_JSON_FILE) -> Optional["PmDiffFile"]:
@@ -111,7 +111,7 @@ class PmDiffFile:
 				return None
 
 			return PmDiffFile(
-			    upstream_pkgname=j.get("upstream_package", None),
+			    upstream_package=j.get("upstream_package", None),
 			    upstream_commit=j.get("upstream_commit", None),
 			    diff_files=list(map(str, j.get("diff_files", []))),
 			    clean_files=list(map(str, j.get("clean_files", []))),
@@ -130,8 +130,8 @@ class PmDiffFile:
 			                "ignore_files": sorted(self.ignore_files),
 			            },
 			            **({
-			                "upstream_package": self.upstream_pkgname,
-			            } if self.upstream_pkgname else {})
+			                "upstream_package": self.upstream_package,
+			            } if self.upstream_package else {})
 			        },
 			        indent=2,
 			    )
@@ -166,7 +166,13 @@ def _generator(repo_url: str, ignored_srcs: list[str], commit_sha: Optional[str]
 
 	yield (
 	    None,
-	    PmDiffFile(upstream_pkg, commit_sha, diff_files=diff_files, clean_files=clean_files, ignore_files=ignored_srcs),
+	    PmDiffFile(
+	        commit_sha,
+	        diff_files=diff_files,
+	        clean_files=clean_files,
+	        ignore_files=ignored_srcs,
+	        upstream_package=upstream_pkg,
+	    ),
 	)
 
 
@@ -202,8 +208,8 @@ def diff_package_lazy(
 
 		else:
 			commit = None if fetch_latest else pmdiff.upstream_commit
-			repo_url = get_repo_url(pmdiff.upstream_pkgname or pkgbase)
-			return _generator(repo_url, pmdiff.ignore_files, commit_sha=commit, upstream_pkg=pmdiff.upstream_pkgname)
+			repo_url = get_repo_url(pmdiff.upstream_package or pkgbase)
+			return _generator(repo_url, pmdiff.ignore_files, commit_sha=commit, upstream_pkg=pmdiff.upstream_package)
 
 
 def save_diff(diff: FileDiff, update_local: bool, keep_old: bool):
