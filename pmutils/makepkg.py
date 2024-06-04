@@ -187,7 +187,7 @@ class PackageBuilder:
 			# copy the local source files (during which we need to figure out which ones are local)
 			msg.log2(f"Copying local source files")
 			for src in [
-			    *srcinfo.fields["source"],
+			    *srcinfo.fields.get("source", []),
 			    *(srcinfo.fields.get("install", [])),
 			    *[y for x in srcinfo.subpkgs for y in x[1].get("install", [])]
 			]:
