@@ -144,7 +144,7 @@ class PackageBuilder:
 		if self.local:
 			env["PKGDEST"] = pkgdest
 			try:
-				if self.run(["makepkg", "-f", *extra_args, f"PKGDEST={pkgdest}"], env=env).returncode != 0:
+				if self.run(["makepkg", "-srf", *extra_args, f"PKGDEST={pkgdest}"], env=env).returncode != 0:
 					return None
 			except:
 				return None
