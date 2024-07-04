@@ -26,7 +26,7 @@ class Database:
 		for pkg in self._packages:
 			self._names[pkg.name] = pkg
 
-		self._additions: list[str] = []  # filenames
+		self._additions: list[tuple[str, list[str]]] = []    # (filename, [digests])
 		self._add_names: dict[str, Package] = dict()
 		self._new_files: list[tuple[Package, str]] = []
 
@@ -53,14 +53,16 @@ class Database:
 
 		self._removals.append(package)
 
-	def add(self, file: str, verbose: bool = True, allow_downgrade: bool = False) -> bool:
+	def add(self, file: str, digests: list[str], verbose: bool = True, allow_downgrade: bool = False) -> bool:
 		if not path.exists(file):
 			msg.error(f"Ignoring addition of non-existent package file '{file}'")
 			return False
 
 		# remove an old package if we need to.
 		new_pkg = Package.parse(
-		    file, size=os.stat(file).st_size, sha256=hashlib.file_digest(open(file, "rb"), "sha256").hexdigest()
+		    file,
+		    size=os.stat(file).st_size,
+		    sha256=(hashlib.file_digest(open(file, "rb"), "sha256").hexdigest() if len(digests) > 1 else digests[0])
 		)
 
 		self._new_files.append((new_pkg, file))
@@ -108,7 +110,7 @@ class Database:
 				return False
 
 		self._add_names[new_pkg.name] = new_pkg
-		self._additions.append(file)
+		self._additions.append((file, digests))
 
 		if old_pkg is not None and did_remove:
 			msg.p(
@@ -147,7 +149,7 @@ class Database:
 			if not os.path.exists(f"{self._db_path}.lck"):
 				break
 			msg.log("Pacman database is locked, waiting...")
-			time.sleep(0.5)
+			time.sleep(1.0)
 
 		if (a := len(self._removals)) > 0:
 			rm = set(x.name for x in self._removals)
@@ -161,33 +163,20 @@ class Database:
 		if (b := len(self._additions)) > 0:
 			msg.log2(f"Adding {b} package{'' if b == 1 else 's'}")
 			try:
-				# ok, because at this stage all we have is the filename, let's parse the filename
-				# again, and check whether the name of the package is the same as the sanitised name.
-				# if not, then we need to use the '--oci-name' option of our patched repo-add.
-				specials = set(
-				    filter(
-				        lambda x: x[1].name != x[1].sanitised_name(),
-				        map(lambda x: (x, Package.parse(x, size=1, sha256="")), self._additions)
-				    )
-				)
-				normals = set(self._additions) - set(x[0] for x in specials)
+				for (file, digests) in self._additions:
+					args = [
+					    "repo-add",
+					    "--quiet",
+					    "--prevent-downgrade",
+					    "--oci-name",
+					    Package.parse(file, size=1, sha256="").sanitised_name(),
+					    *[aa for d in digests for aa in ["--oci-digest", d]],
+					    "--sign",
+					    self._db_path,
+					    file,
+					]
 
-				subprocess.check_call(["repo-add", "--quiet", "--prevent-downgrade", "--sign", self._db_path, *normals],
-				                      start_new_session=True)
-				for sfile, spkg in specials:
-					subprocess.check_call(
-					    [
-					        "repo-add",
-					        "--quiet",
-					        "--prevent-downgrade",
-					        "--oci-name",
-					        spkg.sanitised_name(),
-					        "--sign",
-					        self._db_path,
-					        sfile,
-					    ],
-					    start_new_session=True,
-					)
+					subprocess.check_call(args, start_new_session=True)
 
 			except:
 				msg.error_and_exit("Failed to add package!")
@@ -209,8 +198,8 @@ class Database:
 			msg.log(f"Creating new database {db_path}")
 
 			# just in case there's actual errors
-			# note: we add '.tar.zst' explictily here.
 			try:
+				# note: we add '.tar.zst' explictily here.
 				out = subprocess.check_output(["repo-add", "--sign", "--quiet", f"{db_path}.tar.zst"],
 				                              stderr=subprocess.PIPE,
 				                              start_new_session=True).splitlines()

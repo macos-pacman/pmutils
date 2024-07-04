@@ -79,10 +79,9 @@ def cmd_add(
 		for pkg in map(str, package):
 			if pkg.endswith(".sig"):
 				continue
-			r.database.add(pkg, verbose=verbose, allow_downgrade=allow_downgrade)
+			r.add_package(pkg, verbose=verbose, allow_downgrade=allow_downgrade)
 
-	if upload:
-		r.sync()
+	r.sync(upload)
 
 	if not keep:
 		msg.log(f"Deleting package files")
@@ -117,7 +116,7 @@ def cmd_list(ctx: Any, repo: Optional[str]):
 	if r is None:
 		msg.error_and_exit(f"Repository {repo} does not exist")
 
-	for p in r.database.packages():
+	for p in r.database().packages():
 		print(f"  {p.name} {msg.GREEN}{p.version}{msg.ALL_OFF}")
 
 
@@ -162,11 +161,12 @@ def cmd_fetch(ctx: Any, package: list[str], repo: Optional[str], force: bool):
 
 	if (r := config().registry.get_repository(repo)) is None:
 		msg.error_and_exit(f"Repository '{repo}' does not exist")
-	elif r.root_dir is None:
+	elif r.root_dir() is None:
 		msg.error_and_exit(f"`root-dir` not configured for repository, cannot fetch")
 
 	for pkg in package:
-		fetch.fetch_upstream_package(root_dir=r.root_dir, pkg_name=pkg, force=force)
+		# note: we know root_dir is not none here
+		fetch.fetch_upstream_package(root_dir=cast(str, r.root_dir()), pkg_name=pkg, force=force)
 
 	msg.log("Done")
 
@@ -260,10 +260,10 @@ def cmd_rebase(
 			msg.error_and_exit(f"`--outdated` flag requires `--repo` to be provided")
 
 		assert r is not None
-		if r.root_dir is None:
+		if r.root_dir() is None:
 			msg.error_and_exit(f"Cannot rebase packages without configured `root-dir` setting")
 
-		pp = get_outdated_packages(repo=r.name, verbose=False)
+		pp = get_outdated_packages(repo=r.name(), verbose=False)
 		wanted = set(map(str, package))
 
 		# get the list of outdated packages.
@@ -286,8 +286,8 @@ def cmd_rebase(
 
 		# if the folder exists, assume it's a folder; otherwise, assume it's a package if we were given the repo.
 		def _folder_or_pkgname(p: str) -> str:
-			if (r is not None) and ('/' not in p) and ('.' not in p) and (r.root_dir
-			                                                              is not None) and r.database.contains(p):
+			if (r is not None) and ('/' not in p) and ('.' not in p) and (r.root_dir()
+			                                                              is not None) and r.database().contains(p):
 				return f"{r.root_dir}/{p}"
 			return p
 

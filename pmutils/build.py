@@ -193,10 +193,9 @@ def makepkg(
 				else:
 					with msg.Indent():
 						for pkg in packages:
-							repo.database.add(f"{tmp}/{pkg}", verbose=True, allow_downgrade=allow_downgrade)
+							repo.add_package(f"{tmp}/{pkg}", verbose=True, allow_downgrade=allow_downgrade)
 
-					if upload:
-						repo.sync()
+					repo.sync(upload)
 
 			if install:
 				msg.log("Installing package(s)")

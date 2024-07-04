@@ -218,13 +218,13 @@ def upload_bundle():
 		os_ver = str(jj["os_ver"])
 		vm_arch = str(jj["arch"])
 
-	repo = registry.AdHocRepo(name="$pmutils-sandbox", remote=remote)
+	repo = registry.AdHocRepo(_name="$pmutils-sandbox", _remote=remote)
 
 	oauth_token = cfg.registry.oauth_token(repo)
 	msg.log(f"Compressing {bundle_path} ({os_ver}, {vm_arch}) into blobs")
 
 	# start with no layers
-	ociw = oci.OciWrapper(cfg.registry.url(), repo.remote, oauth_token)
+	ociw = oci.OciWrapper(cfg.registry.url(), repo.remote(), oauth_token)
 
 	upload_queue: UploadQueue = Queue(maxsize=MAX_PENDING_UPLOADS)
 	bar_offset = BarOffsetAllocator(NUM_UPLOAD_THREADS)

@@ -32,6 +32,12 @@ class Existence(Enum):
 	CONFLICTS = 3
 
 
+class UploadResult(Enum):
+	UPLOADED = 1
+	EXISTS = 2
+	FAILED = 3
+
+
 @dataclass
 class OciObject:
 	sha256: str
@@ -109,7 +115,7 @@ class OciWrapper:
 
 		r = self.http_post(f"/v2/{namespace}/blobs/uploads/")
 		if not (200 <= r.status_code <= 299):
-			msg.error(f"Failed to get blob-upload-endpoint: {r.text}")
+			msg.error(f"Failed to get blob-upload-endpoint for namespace '{namespace}': {r.text}")
 			return False
 
 		upload_url = r.headers["location"]
@@ -148,12 +154,12 @@ class OciWrapper:
 	    index_upload_callback: Callable[[], None] = (lambda: None),
 	    manifest_upload_callback: Callable[[], None] = (lambda: None),
 	    done_callback: Callable[[], None] = (lambda: None),
-	):
+	) -> UploadResult:
 		namespace = self.make_namespace(for_package=manifest.name)
-		exists, other_manifests = self._check_existence(namespace, manifest, platform)
+		exists, other_manifests = self.check_existence(namespace, manifest, platform)
 
 		if exists == Existence.EXISTS:
-			return
+			return UploadResult.EXISTS
 
 		(manifest_digest, manifest_len) = self.upload_manifest(namespace, manifest, callback=manifest_upload_callback)
 
@@ -189,11 +195,12 @@ class OciWrapper:
 		)
 
 		done_callback()
+		return UploadResult.UPLOADED
 
 	def make_namespace(self, *, for_package: str) -> str:
 		return f"{self.remote}/{for_package}"
 
-	def _check_existence(
+	def check_existence(
 	    self,
 	    namespace: str,
 	    manifest: OciManifest,
