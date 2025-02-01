@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) 2023, zhiayang
+# Copyright (c) 2023, yuki
 # SPDX-License-Identifier: Apache-2.0
 
 import gzip
@@ -21,6 +21,7 @@ from urllib.request import urlopen
 
 CONCURRENT_CONNECTIONS = 3
 
+
 @dataclass
 class UpstreamDatabase:
 	packages: dict[str, Package]
@@ -28,8 +29,9 @@ class UpstreamDatabase:
 	@staticmethod
 	def from_url(url: str) -> "UpstreamDatabase":
 		with tarfile.open(name=None, fileobj=BytesIO(urlopen(url).read())) as tar:
-			pkgs = [ Package.from_tar_file(tar, x) for x in tar.getmembers() if x.isdir() ]
-			return UpstreamDatabase({ pkg.name: pkg for pkg in pkgs })
+			pkgs = [Package.from_tar_file(tar, x) for x in tar.getmembers() if x.isdir()]
+			return UpstreamDatabase({pkg.name: pkg for pkg in pkgs})
+
 
 def _print_progress(idx: int, total: int):
 	txt_len = len(f" {1 + idx}/{total}")
@@ -54,13 +56,14 @@ def check_packages(base_url: str, repo: Repository, check_config: CheckerConfig,
 		l = len(r.packages)
 		print(f"{msg.GREEN}{l}{msg.ALL_OFF} {msg.BOLD}package{'' if l == 1 else 's'}{msg.ALL_OFF}", end='', flush=True)
 
-		tmp = { x.name: x.version for x in r.packages.values() if x.name in pkg_names }
+		tmp = {x.name: x.version for x in r.packages.values() if x.name in pkg_names}
 
 		if check_config.check_out_of_date:
 			# check if the package is flagged is out of date
 			print(f", checking:", end='', flush=True)
 
 			dd = [0]
+
 			async def check_one(session: aiohttp.ClientSession, name: str, done: list[int]):
 				while True:
 					s = await session.get(f"https://archlinux.org/packages/{ur}/{r.packages[name].arch}/{name}/json/")
@@ -98,11 +101,11 @@ def check_packages(base_url: str, repo: Repository, check_config: CheckerConfig,
 	print(f"{msg.GREEN}{len(aur_names)}{msg.ALL_OFF} {msg.BOLD}packages{msg.ALL_OFF}", end='', flush=True)
 	aur_to_check = pkg_names.intersection(aur_names)
 
-
 	if len(aur_to_check) > 0:
 		print(f", checking:", end='', flush=True)
 
 		dd = [0]
+
 		async def check_one_aur(session: aiohttp.ClientSession, name: str, done: list[int]):
 			while True:
 				s = await session.get(f"https://aur.archlinux.org/rpc/v5/info/{name}")
@@ -157,13 +160,17 @@ def check_packages(base_url: str, repo: Repository, check_config: CheckerConfig,
 		msg.log(f"{num_upd} package{' was' if num_upd == 1 else 's were'} updated upstream{':' if verbose else ''}")
 		for u in updated_packages:
 			if verbose:
-				msg.log3(f"{u}{msg.ALL_OFF}: {msg.GREY}{repo.database.get(u).version}{msg.ALL_OFF} " +
-						 f"-> {msg.GREEN}{upstream_versions[u]}{msg.ALL_OFF}")
+				msg.log3(
+				    f"{u}{msg.ALL_OFF}: {msg.GREY}{repo.database.get(u).version}{msg.ALL_OFF} "
+				    + f"-> {msg.GREEN}{upstream_versions[u]}{msg.ALL_OFF}"
+				)
 
 	if (num_ood := len(upstream_flagged_ood)) > 0:
 		msg.log(f"{num_ood} package{' was' if num_ood == 1 else 's were'} flagged out-of-date{':' if verbose else ''}")
 		for name, date in upstream_flagged_ood.items():
 			if verbose:
-				msg.log3(f"{name}{msg.ALL_OFF}: {msg.GREY}since{msg.ALL_OFF} {msg.YELLOW}{date.strftime('%Y-%m-%d')}{msg.ALL_OFF}")
+				msg.log3(
+				    f"{name}{msg.ALL_OFF}: {msg.GREY}since{msg.ALL_OFF} {msg.YELLOW}{date.strftime('%Y-%m-%d')}{msg.ALL_OFF}"
+				)
 
 	return updated_packages

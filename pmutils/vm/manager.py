@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2024, zhiayang
+# Copyright (c) 2024, yuki
 # SPDX-License-Identifier: Apache-2.0
 
 import os
@@ -391,6 +391,10 @@ class VMSandBox:
 		# running `pacman` itself should just work.
 
 		msg.log(f"Done!")
+
+		msg.log(f"Installing system toolchain")
+		cmd(f"sudo pacman -S --noconfirm llvm-project-toolchain")
+
 		msg.log(f"Additionally installing GNU nano because pico is unusable")
 		cmd(f"sudo pacman -S --noconfirm nano")
 

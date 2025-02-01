@@ -1,5 +1,5 @@
 // VirtualMachine.h
-// Copyright (c) 2024, zhiayang
+// Copyright (c) 2024, yuki
 // SPDX-License-Identifier: Apache-2.0
 
 #pragma once

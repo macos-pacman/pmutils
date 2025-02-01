@@ -1,5 +1,5 @@
 # util.py
-# Copyright (c) 2024, zhiayang
+# Copyright (c) 2024, yuki
 # SPDX-License-Identifier: Apache-2.0
 
 import os
@@ -15,6 +15,7 @@ from pmutils import msg
 from pmutils.package import Version
 from dataclasses import dataclass
 
+
 @dataclass(frozen=True)
 class SrcInfo:
 	pkgbase: str
@@ -27,9 +28,11 @@ class SrcInfo:
 
 pacman_root_dir: Optional[str] = None
 
+
 def _read_kv(l: str) -> tuple[str, str]:
 	a = l.split('=', maxsplit=1)
 	return (a[0].strip(), a[1].strip())
+
 
 def _parse_srcinfo(srcinfo: str) -> SrcInfo:
 	fields: dict[str, list[str]] = {}
@@ -62,6 +65,7 @@ def _get_pacman_root_dir():
 
 		pacman_root_dir = os.path.normpath(f"{os.path.dirname(a)}/../../")
 
+
 def get_srcinfo(pkgbuild: str) -> SrcInfo:
 	global pacman_root_dir
 	_get_pacman_root_dir()
@@ -75,7 +79,6 @@ def get_srcinfo(pkgbuild: str) -> SrcInfo:
 		msg.error_and_exit(f"Failed to source PKGBUILD: {proc.stdout}")
 	else:
 		return _parse_srcinfo(proc.stdout)
-
 
 
 def get_srcinfo_from_string(pkgbuild: str) -> SrcInfo:
@@ -92,12 +95,13 @@ def get_srcinfo_from_string(pkgbuild: str) -> SrcInfo:
 		return _parse_srcinfo(srcinfo)
 
 
-
 def check_tree_dirty(path: str, check_patterns: list[str] = []) -> bool:
 	with contextlib.chdir(path) as _:
 		# run a git diff to see if dirty (if not force)
 		git = subprocess.run(["git", "diff-index", "--name-only", "--relative", "HEAD"],
-			check=False, capture_output=True, text=True)
+		                     check=False,
+		                     capture_output=True,
+		                     text=True)
 
 		if git.returncode != 0:
 			msg.error(f"Error running git: {git.stderr}")
@@ -119,6 +123,7 @@ def check_tree_dirty(path: str, check_patterns: list[str] = []) -> bool:
 # get the pacman installation prefix
 _pacman_prefix: Optional[str] = None
 
+
 def get_pacman_prefix() -> str:
 	global _pacman_prefix
 	if _pacman_prefix is not None:
@@ -138,8 +143,10 @@ class PackageDeps:
 	makedepends: set[str]
 	checkdepends: set[str]
 
+
 # TODO: support non-default DBPath (ie. not /var/lib/pacman)
 DB_PATH = f"/var/lib/pacman"
+
 
 def get_alpm_handle() -> Any:
 	PREFIX = get_pacman_prefix()
@@ -154,12 +161,14 @@ def get_package_dependencies(handle: Any, package_name: str) -> Optional[Package
 	if (pkg := handle.get_localdb().get_pkg(package_name)) is not None:
 		# there is no type information in pyalpm...
 		return PackageDeps(
-			depends=set(cast(list[str], pkg.depends)),
-			optdepends=set(cast(list[str], pkg.optdepends)),
-			makedepends=set(cast(list[str], pkg.makedepends)),
-			checkdepends=set(cast(list[str], pkg.checkdepends)))
+		    depends=set(cast(list[str], pkg.depends)),
+		    optdepends=set(cast(list[str], pkg.optdepends)),
+		    makedepends=set(cast(list[str], pkg.makedepends)),
+		    checkdepends=set(cast(list[str], pkg.checkdepends))
+		)
 
 	return None
+
 
 def resolve_transitive_deps(handle: Any, packages: str | Iterable[str], depkind: str) -> set[str]:
 	visited: set[str] = set()

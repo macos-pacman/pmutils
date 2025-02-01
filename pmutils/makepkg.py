@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2024, zhiayang
+# Copyright (c) 2024, yuki
 # SPDX-License-Identifier: Apache-2.0
 
 import os
@@ -180,7 +180,6 @@ class PackageBuilder:
 
 		# handle a ^C at this point; delete the build folder unless --sandbox-keep was passed
 		try:
-
 			msg.log2(f"Copying PKGBUILD")
 			self.copy_to_remote("./PKGBUILD", f"{tmpdir}/")
 

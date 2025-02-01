@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) 2023, zhiayang
+# Copyright (c) 2023, yuki
 # SPDX-License-Identifier: Apache-2.0
 
 import os
