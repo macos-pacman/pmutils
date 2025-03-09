@@ -13,7 +13,7 @@ from enum import Enum
 from dataclasses import dataclass
 
 from pmutils import msg, mimes
-from pmutils.version import IVersion
+from pmutils.version import Version, IVersion
 
 # god damn requests sucks
 from http.client import HTTPConnection
@@ -24,6 +24,11 @@ assert HTTPConnection.__init__.__defaults__ is not None
 HTTPConnection.__init__.__defaults__ = tuple(
     x if x != 8192 else LARGE_BLOCK_SIZE for x in HTTPConnection.__init__.__defaults__
 )
+
+IMG_TITLE = "org.opencontainers.image.title"
+IMG_VERSION = "org.opencontainers.image.version"
+IMG_REMOTE_URL = "org.opencontainers.image.source"
+IMG_DESCRIPTION = "org.opencontainers.image.description"
 
 
 class Existence(Enum):
@@ -54,6 +59,17 @@ class OciObject:
 		    "size": self.size,
 		}
 
+	@classmethod
+	def from_json(cls, json: dict[str, Any]) -> "OciObject":
+		try:
+			return OciObject(
+			    sha256=json["digest"].replace("sha256:", ""),
+			    mime=json["mediaType"],
+			    size=json["size"],
+			)
+		except KeyError as e:
+			msg.error_and_exit(f"Malformed OciObject json: {json}: {e}")
+
 
 @dataclass
 class OciManifest:
@@ -76,10 +92,10 @@ class OciManifest:
 		    "schemaVersion": 2,
 		    "mediaType": mimes.MANIFEST,
 		    "annotations": {
-		        "org.opencontainers.image.title": self.name,
-		        "org.opencontainers.image.version": str(self.version),
-		        "org.opencontainers.image.source": f"https://github.com/{self.remote_url}",
-		        "org.opencontainers.image.description": (self.description or f"{self.name} {self.version}"),
+		        IMG_TITLE: self.name,
+		        IMG_VERSION: str(self.version),
+		        IMG_REMOTE_URL: f"https://github.com/{self.remote_url}",
+		        IMG_DESCRIPTION: (self.description or f"{self.name} {self.version}"),
 		    },
 		    "config": {
 		        "digest": f"sha256:{cfg.sha256}",
@@ -93,6 +109,104 @@ class OciManifest:
 
 	def json(self) -> str:
 		return json.dumps(self.obj())
+
+	@classmethod
+	def from_json(cls, json: dict[str, Any]) -> "OciManifest":
+		try:
+			config = OciObject.from_json(json["config"])
+			layers = [OciObject.from_json(l) for l in json["layers"]]
+
+			annot = json["annotations"]
+			return OciManifest(
+			    name=annot[IMG_TITLE],
+			    version=annot[IMG_VERSION],
+			    remote_url=annot[IMG_REMOTE_URL].replace("https://github.com/", ""),
+			    description=annot[IMG_DESCRIPTION],
+			    layers=layers,
+			    config=config
+			)
+
+		except KeyError as e:
+			msg.error_and_exit(f"Malformed OciManifest json: {json}: {e}")
+
+
+@dataclass
+class OciIndex:
+	@dataclass
+	class ManifestShim:
+		size: int
+		digest: str
+		platform_os: Optional[str]
+		platform_arch: Optional[str]
+
+	name: str
+	version: IVersion
+	remote_url: str
+	manifests: list[ManifestShim]
+
+	def __post_init__(self):
+		if '+' in self.name:
+			msg.error_and_exit(f"Cannot create OCI index with name '{self.name}' containing '+'")
+
+	def obj(self) -> dict[str, Any]:
+		def make_platform_dict(m: OciIndex.ManifestShim) -> dict[str, Any]:
+			if not (m.platform_os or m.platform_arch):
+				return {}
+			return {
+			    "platform": {
+			        "os": m.platform_os,
+			        "architecture": m.platform_arch,
+			    }
+			}
+
+		mm = [{
+		    "mediaType": mimes.MANIFEST,
+		    "digest": m.digest,
+		    **make_platform_dict(m),
+		} for m in self.manifests]
+
+		return {
+		    "schemaVersion": 2,
+		    "mediaType": mimes.INDEX,
+		    "annotations": {
+		        IMG_TITLE: self.name,
+		        IMG_VERSION: str(self.version),
+		        IMG_REMOTE_URL: f"https://github.com/{self.remote_url}",
+		    },
+		    "manifests": mm,
+		}
+
+	def json(self) -> str:
+		return json.dumps(self.obj())
+
+	@classmethod
+	def from_json(cls, json: dict[str, Any]) -> "OciIndex":
+		try:
+			manifests: list[OciIndex.ManifestShim] = []
+			seen_digests: set[str] = set()
+			for m in json["manifests"]:
+				if m["digest"] in seen_digests:
+					continue
+
+				seen_digests.add(m["digest"])
+				manifests.append(
+				    OciIndex.ManifestShim(
+				        size=m["size"],
+				        digest=m["digest"],
+				        platform_os=m.get("platform", {}).get("os"),
+				        platform_arch=m.get("platform", {}).get("architecture")
+				    )
+				)
+
+			return OciIndex(
+			    name=json["annotations"][IMG_TITLE],
+			    version=Version.parse(json["annotations"][IMG_VERSION]),
+			    remote_url=json["annotations"][IMG_REMOTE_URL].replace("https://github.com/", ""),
+			    manifests=manifests
+			)
+
+		except KeyError as e:
+			msg.error_and_exit(f"Malformed OciIndex json: {json}: {e}")
 
 
 @dataclass
@@ -180,10 +294,10 @@ class OciWrapper:
 		    "mediaType": mimes.INDEX,
 		    "manifests": other_manifests + [manifest_desc],
 		    "annotations": {
-		        "org.opencontainers.image.title": f"{manifest.name}",
-		        "org.opencontainers.image.version": str(manifest.version),
-		        "org.opencontainers.image.source": f"https://github.com/{self.remote}",
-		        "org.opencontainers.image.description": (manifest.description or f"{manifest.name} {manifest.version}"),
+		        IMG_TITLE: f"{manifest.name}",
+		        IMG_VERSION: str(manifest.version),
+		        IMG_REMOTE_URL: f"https://github.com/{self.remote}",
+		        IMG_DESCRIPTION: (manifest.description or f"{manifest.name} {manifest.version}"),
 		    }
 		}
 
@@ -199,6 +313,27 @@ class OciWrapper:
 
 	def make_namespace(self, *, for_package: str) -> str:
 		return f"{self.remote}/{for_package}"
+
+	def get_tags(self, namespace: str) -> list[str]:
+		r = self.http_get(f"/v2/{namespace}/tags/list", failable=True)
+		if r.status_code == 404:
+			return []
+
+		return r.json()["tags"]
+
+	def get_index(self, namespace: str, tag: str) -> Optional[OciIndex]:
+		r = self.http_get(f"/v2/{namespace}/manifests/{tag}", failable=True)
+		if r.status_code == 404:
+			return None
+
+		return OciIndex.from_json(r.json())
+
+	def get_manifest(self, ns: str, digest: str) -> Optional[OciManifest]:
+		r = self.http_get(f"/v2/{ns}/manifests/{digest}", failable=True)
+		if r.status_code == 404:
+			return None
+
+		return OciManifest.from_json(r.json())
 
 	def check_existence(
 	    self,
@@ -259,6 +394,7 @@ class OciWrapper:
 	    *,
 	    content_type: Optional[str] = None,
 	    failable: bool = False,
+	    accept: list[str] = [],
 	    **kwargs: Any
 	) -> req.Response:
 

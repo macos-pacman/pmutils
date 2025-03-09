@@ -6,9 +6,15 @@ import os
 import pyalpm
 import shutil
 import fnmatch
+import hashlib
 import tempfile
 import contextlib
 import subprocess
+
+import tqdm.auto as tqdm
+import tqdm.utils as tqdm_utils
+
+from io import BytesIO
 
 from typing import *
 from pmutils import msg
@@ -189,3 +195,82 @@ def resolve_transitive_deps(handle: Any, packages: str | Iterable[str], depkind:
 			visited.add(pkg)
 
 	return visited
+
+
+def read_file_chunks_with_progress_bar(
+    file: str,
+    progress_bar_threshold: int,
+    bar_desc: str,
+    chunk_callback: Callable[[Any, str, int], None],   # (data, digest, size) -> None
+    max_chunk_size: int
+):
+	with open(file, "rb") as pkg_fd:
+		pkg_size = os.path.getsize(file)
+
+		if pkg_size >= progress_bar_threshold:
+			bar = tqdm.tqdm(
+			    desc=bar_desc,
+			    total=pkg_size,
+			    unit=f"B",
+			    unit_scale=True,
+			    unit_divisor=1024,
+			    dynamic_ncols=True,
+			    miniters=1,
+			    maxinterval=0.3,
+			    ascii=" ▬",
+			    leave=False,
+			    bar_format=f"{{desc:<18}}: {msg.blue('[')}{{bar}}{msg.blue(']')} ({{n_fmt:<5}}/{{total_fmt:>5}}"
+			    + " [{percentage:>3.0f}%], {rate_fmt:>8}{postfix}) "
+			)
+
+			# multi blob: show progress bar
+			while True:
+				data = pkg_fd.read(max_chunk_size)
+				if len(data) == 0:
+					break
+
+				blob_io = tqdm_utils.CallbackIOWrapper(bar.update, BytesIO(data))
+				chunk_callback(blob_io, hashlib.sha256(data).hexdigest(), len(data))
+
+			bar.close()
+
+		else:
+			# just do it without a bar
+			data = pkg_fd.read()
+			chunk_callback(data, hashlib.sha256(data).hexdigest(), len(data))
+
+
+def write_file_chunks_with_progress_bar(
+    file: str,
+    file_size: int,
+    progress_bar_threshold: int,
+    bar_desc: str,
+    data_iterator: Iterable[Any],
+):
+	with open(file, "wb") as pkg_fd:
+		if file_size >= progress_bar_threshold:
+			bar = tqdm.tqdm(
+			    desc=bar_desc,
+			    total=file_size,
+			    unit=f"B",
+			    unit_scale=True,
+			    unit_divisor=1024,
+			    dynamic_ncols=True,
+			    miniters=1,
+			    maxinterval=0.3,
+			    ascii=" ▬",
+			    leave=False,
+			    bar_format=f"{{desc:<18}}: {msg.blue('[')}{{bar}}{msg.blue(']')} ({{n_fmt:<5}}/{{total_fmt:>5}}"
+			    + " [{percentage:>3.0f}%], {rate_fmt:>8}{postfix}) "
+			)
+
+			# multi blob: show progress bar
+			for data in data_iterator:
+				bar.update(len(data))
+				pkg_fd.write(data)
+
+			bar.close()
+
+		else:
+			for data in data_iterator:
+				pkg_fd.write(data)

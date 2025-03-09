@@ -19,6 +19,13 @@ REPLACEMENTS = {
 }
 
 
+def sanitise_package_name(name: str) -> str:
+	if (r := REPLACEMENTS.get(name)) is not None:
+		return r
+	else:
+		return name.replace("+", "plus").replace("@", "at")
+
+
 @dataclass(eq=True, frozen=True)
 class Package:
 	name: str
@@ -32,12 +39,7 @@ class Package:
 		return f"{self.name}-{self.version}{astr}"
 
 	def sanitised_name(self) -> str:
-		if (r := REPLACEMENTS.get(self.name)) is not None:
-			return r
-		elif "+" in self.name:
-			msg.error_and_exit(f"Package '{self.name}' contains invalid character '+'")
-
-		return self.name
+		return sanitise_package_name(self.name)
 
 	def manifest(self) -> dict[str, Any]:
 		return {

@@ -3,16 +3,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import os
-import hashlib
 import subprocess
-
-import tqdm.auto as tqdm
-import tqdm.utils as tqdm_utils
 
 import requests as req
 
-from io import BytesIO
-from pmutils import msg, mimes
+from pmutils import msg, mimes, util
 from pmutils.oci import OciWrapper, OciManifest, OciObject
 from pmutils.package import Package
 from pmutils.database import Database
@@ -95,48 +90,6 @@ class Registry:
 		return self._token
 
 
-def _chunk_file_with_progress_bar(
-    file: str,
-    progress_bar_threshold: int,
-    bar_desc: str,
-    chunk_callback: Callable[[Any, str, int], None],   # (data, digest, size) -> None
-):
-	with open(file, "rb") as pkg_fd:
-		pkg_size = os.path.getsize(file)
-
-		if pkg_size >= progress_bar_threshold:
-			bar = tqdm.tqdm(
-			    desc=bar_desc,
-			    total=pkg_size,
-			    unit=f"B",
-			    unit_scale=True,
-			    unit_divisor=1024,
-			    dynamic_ncols=True,
-			    miniters=1,
-			    maxinterval=0.3,
-			    ascii=" ▬",
-			    leave=False,
-			    bar_format=f"{{desc:<18}}: {msg.blue('[')}{{bar}}{msg.blue(']')} ({{n_fmt:<5}}/{{total_fmt:>5}}"
-			    + " [{percentage:>3.0f}%], {rate_fmt:>8}{postfix}) "
-			)
-
-			# multi blob: show progress bar
-			while True:
-				data = pkg_fd.read(MAX_BLOB_SIZE)
-				if len(data) == 0:
-					break
-
-				blob_io = tqdm_utils.CallbackIOWrapper(bar.update, BytesIO(data))
-				chunk_callback(blob_io, hashlib.sha256(data).hexdigest(), len(data))
-
-			bar.close()
-
-		else:
-			# just do it without a bar
-			data = pkg_fd.read()
-			chunk_callback(data, hashlib.sha256(data).hexdigest(), len(data))
-
-
 class Repository:
 	_name: str
 	_remote: str
@@ -177,6 +130,9 @@ class Repository:
 	def database(self) -> Database:
 		return self._database
 
+	def oci(self) -> OciWrapper:
+		return self._ociw
+
 	def sync(self, upload: bool):
 		updates = self._database.save()
 		if len(updates) == 0 or (not upload):
@@ -202,7 +158,9 @@ class Repository:
 		def cb(_: Any, digest: str, size: int):
 			digests.append(digest)
 
-		_chunk_file_with_progress_bar(file, 10 * MAX_BLOB_SIZE, msg.slog3("Calculating package digests"), cb)
+		util.read_file_chunks_with_progress_bar(
+		    file, 10 * MAX_BLOB_SIZE, msg.slog3("Calculating package digests"), cb, MAX_BLOB_SIZE
+		)
 		return self._database.add(file, digests, verbose=verbose, allow_downgrade=allow_downgrade)
 
 	def _upload_package(self, pkg: Package, pkg_file: str):
@@ -219,7 +177,9 @@ class Repository:
 			    size=size,
 			))
 
-		_chunk_file_with_progress_bar(pkg_file, MIN_PROGRESSBAR_SIZE, msg.slog3("Uploading package file"), cb)
+		util.read_file_chunks_with_progress_bar(
+		    pkg_file, MIN_PROGRESSBAR_SIZE, msg.slog3("Uploading package file"), cb, MAX_BLOB_SIZE
+		)
 
 		manifest = OciManifest(
 		    name=pkg.sanitised_name(),

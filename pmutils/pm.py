@@ -11,8 +11,8 @@ import importlib.metadata as im
 
 from typing import *
 from pmutils.config import Config, config
-from pmutils import msg, build, check, diff, fetch, rebase, vm
 from pmutils.registry import Registry, Repository
+from pmutils import msg, build, check, diff, fetch, rebase, vm, download
 
 DEFAULT_CONFIG = "config.toml"
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
@@ -336,6 +336,7 @@ def cmd_rebase(
 @click.option("-i", "--install", is_flag=True, help="Install the package after building")
 @click.option("-k", "--keep", is_flag=True, help="Keep the package after building it")
 @click.option("-d", "--delete", is_flag=True, help="Delete the package after building it")
+@click.option("--sync/--no-sync", is_flag=True, default=True, help="Sync and update packages before building")
 @click.option("--sandbox/--no-sandbox", is_flag=True, default=True, help="Use the VM Sandbox to build packages")
 @click.option(
     "--sandbox-folder", type=str, default=None, metavar="FOLDER", help="Use FOLDER as the build folder in the sandbox"
@@ -355,6 +356,7 @@ def cmd_build(
     add: bool,
     allow_downgrade: bool,
     buildnum: bool,
+    sync: bool,
     sandbox: bool,
     sandbox_folder: Optional[str],
     sandbox_keep: bool,
@@ -391,12 +393,42 @@ def cmd_build(
 		    install=install,
 		    allow_downgrade=allow_downgrade,
 		    update_buildnum=buildnum,
+		    sync=sync,
 		    use_sandbox=sandbox,
 		    sandbox_folder=sandbox_folder,
 		    sandbox_keep=sandbox_keep,
 		)
 
 	msg.log("Done")
+
+
+@cli.command(
+    name="download",
+    help=
+    "Download PACKAGE from the remote repository. Use VERSION if specified, otherwise download the latest version. Supports limited fuzzy-matching of versions."
+)
+@click.argument("package", required=True)
+@click.argument("version", required=False)
+@click.option("--repo", required=False)
+@click.option("--os", required=False)
+@click.option("--arch", required=False)
+@click.option("-l", "--list", is_flag=True, default=False, help="List package versions instead of downloading")
+@click.pass_context
+def cmd_download(
+    ctx: Any,
+    repo: Optional[str],
+    package: str,
+    version: Optional[str],
+    os: Optional[str],
+    arch: Optional[str],
+    list: bool
+):
+	Config.load(ctx.meta["config_file"])
+
+	if (repo is None) and (repo := config().registry.get_default_repository()) is None:
+		msg.error_and_exit(f"Unable to determine default repository, specify explicitly")
+
+	download.download_package(repo_name=repo, package=package, version=version, os=os, arch=arch, list_versions=list)
 
 
 @cli.command(name="sbman", help="Manage the sandbox virtual machine")

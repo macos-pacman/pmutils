@@ -138,6 +138,7 @@ class PackageBuilder:
 	    env: dict[str, str],
 	    pkgdest: str,
 	    check: bool,
+	    sync: bool,
 	    sandbox_folder: Optional[str],
 	    sandbox_keep: bool,
 	) -> Optional[list[str]]:
@@ -198,12 +199,18 @@ class PackageBuilder:
 				msg.log3(f"{src}")
 				self.copy_to_remote(f"./{src}", f"{tmpdir}/")
 
-			msg.log(f"Ensuring system is up-to-date")
-			if self.run("sudo pacman --noconfirm -Syu").returncode != 0:
-				return None
+			if sync:
+				msg.log(f"Ensuring system is up-to-date")
+				if self.run("sudo pacman --noconfirm -Syu").returncode != 0:
+					return None
 
 			# check package list
-			before_pkgs = set(map(lambda x: x.strip(), self.run("pacman -Q", capture=True).stdout.splitlines()))
+			before_pkgs = set(
+			    filter(
+			        lambda s: len(s) > 0,
+			        map(lambda x: x.strip(), self.run("pacman -Q", capture=True).stdout.splitlines())
+			    )
+			)
 
 			env_prefix = f"PKGDEST={tmpdir} SRCDEST={srcdest}"
 			makepkg_extra_args = ' '.join([shlex.quote(x) for x in extra_args])
@@ -228,7 +235,12 @@ class PackageBuilder:
 				    ])
 				).returncode == 0
 
-			after_pkgs = set(map(lambda x: x.strip(), self.run("pacman -Q", capture=True).stdout.splitlines()))
+			after_pkgs = set(
+			    filter(
+			        lambda s: len(s) > 0,
+			        map(lambda x: x.strip(), self.run("pacman -Q", capture=True).stdout.splitlines())
+			    )
+			)
 			if before_pkgs != after_pkgs:
 				msg.warn("Installed packages changed! (this should not happen)")
 

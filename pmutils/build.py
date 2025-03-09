@@ -120,6 +120,7 @@ def makepkg(
     install: bool,
     allow_downgrade: bool,
     update_buildnum: bool,
+    sync: bool,
     use_sandbox: bool,
     sandbox_folder: Optional[str],
     sandbox_keep: bool,
@@ -175,6 +176,7 @@ def makepkg(
 			    env=env,
 			    pkgdest=tmp,
 			    check=check,
+			    sync=sync,
 			    sandbox_folder=sandbox_folder,
 			    sandbox_keep=sandbox_keep,
 			)
