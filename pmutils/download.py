@@ -159,7 +159,7 @@ def download_package(
 	    file=file_name,
 	    file_size=total_size,
 	    progress_bar_threshold=1 * 1024 * 1024,
-	    bar_desc=msg.slog3(f"Downloading package file"),
+	    bar_desc=msg.slog2(f"Downloading package file"),
 	    data_iterator=chunk_gen(),
 	)
 
