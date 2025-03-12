@@ -121,7 +121,7 @@ class OciManifest:
 			    name=annot[IMG_TITLE],
 			    version=annot[IMG_VERSION],
 			    remote_url=annot[IMG_REMOTE_URL].replace("https://github.com/", ""),
-			    description=annot[IMG_DESCRIPTION],
+			    description=annot.get(IMG_DESCRIPTION) or "",
 			    layers=layers,
 			    config=config
 			)
