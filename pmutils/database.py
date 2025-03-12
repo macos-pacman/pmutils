@@ -172,6 +172,7 @@ class Database:
 					    Package.parse(file, size=1, sha256="").sanitised_name(),
 					    *[aa for d in digests for aa in ["--oci-digest", d]],
 					    "--sign",
+					    "--include-sigs",
 					    self._db_path,
 					    file,
 					]
