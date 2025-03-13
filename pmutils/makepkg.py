@@ -212,6 +212,11 @@ class PackageBuilder:
 			    )
 			)
 
+			if "base-devel" not in before_pkgs:
+				msg.log(f"Installing 'base-devel' package")
+				if self.run("sudo pacman --noconfirm -S base-devel").returncode != 0:
+					return None
+
 			env_prefix = f"PKGDEST={tmpdir} SRCDEST={srcdest}"
 			makepkg_extra_args = ' '.join([shlex.quote(x) for x in extra_args])
 
