@@ -212,7 +212,7 @@ class PackageBuilder:
 			    )
 			)
 
-			if "base-devel" not in before_pkgs:
+			if "base-devel" not in "\n".join(before_pkgs):
 				msg.log(f"Installing 'base-devel' package")
 				if self.run("sudo pacman --noconfirm -S base-devel").returncode != 0:
 					return None
