@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pmutils"
-version = "0.7.7"
+version = "0.7.8"
 authors = [{name="yuki", email="yuki@nowhere.place" }]
 description = "Package management utilities"
 readme = "README.md"

@@ -50,6 +50,7 @@ class CheckerConfig:
 DEFAULT_CPUS = 2
 DEFAULT_RAM = 8 * 1024 * 1024 * 1024
 DEFAULT_USERNAME = "pacman"
+DEFAULT_DISK = 100 * 1024 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,7 @@ class SandboxConfig:
 	username: str
 	cpus: int
 	ram: int
+	disk: int
 
 	@staticmethod
 	def load(obj: Optional[dict[str, Any]]) -> "SandboxConfig":
@@ -72,7 +74,8 @@ class SandboxConfig:
 		    remote=obj.get("remote"),
 		    username=obj.get("username", DEFAULT_USERNAME),
 		    cpus=obj.get("cpus", DEFAULT_CPUS),
-		    ram=obj.get("ram", DEFAULT_RAM)
+		    ram=obj.get("ram", DEFAULT_RAM),
+		    disk=obj.get("disk", DEFAULT_DISK)
 		)
 
 

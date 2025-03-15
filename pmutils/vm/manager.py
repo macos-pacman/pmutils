@@ -193,7 +193,7 @@ class VMSandBox:
 		    ipsw_path,
 		    str(sb_config.cpus),
 		    str(sb_config.ram),
-		    str(100 * 1024 * 1024 * 1024)    # 100gb disk
+		    str(sb_config.disk)
 		]).wait()
 
 		if rc != 0:
@@ -393,7 +393,7 @@ class VMSandBox:
 		msg.log(f"Done!")
 
 		msg.log(f"Installing system toolchain")
-		cmd(f"sudo pacman -S --noconfirm llvm-project-toolchain")
+		cmd(f"sudo pacman -S --noconfirm base-devel")
 
 		msg.log(f"Additionally installing GNU nano because pico is unusable")
 		cmd(f"sudo pacman -S --noconfirm nano")
