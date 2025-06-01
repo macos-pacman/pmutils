@@ -393,10 +393,10 @@ class VMSandBox:
 		msg.log(f"Done!")
 
 		msg.log(f"Installing system toolchain")
-		cmd(f"sudo pacman -S --noconfirm base-devel")
+		cmd(f"sudo {PREFIX}/usr/bin/pacman -S --noconfirm base-devel")
 
 		msg.log(f"Additionally installing GNU nano because pico is unusable")
-		cmd(f"sudo pacman -S --noconfirm nano")
+		cmd(f"sudo {PREFIX}/usr/bin/pacman -S --noconfirm nano")
 
 		msg.log(f"Installed packages:")
 		self.send_command(f"pacman -Q")

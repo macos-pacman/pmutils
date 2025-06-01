@@ -110,6 +110,7 @@ class PackageBuilder:
 		        f". /opt/pacman/etc/profile; {cmd}",
 		    ],
 		    capture_output=capture,
+		    env=os.environ | { "LANG": "en_US.UTF-8"},
 		    text=True,
 		)
 
